@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
+import { applyPieceAnims, resetPieceAnims } from "./pieceAnimations";
 
 const ease = (x) => 1 - Math.pow(1 - x, 3);
 
@@ -64,15 +65,23 @@ export function poseScene(env, plan, t, order) {
   brickGroup.children.forEach((g) => {
     if (plan.reveal !== "build") {
       g.visible = true;
+      g.userData.revealed = true;
+      g.userData.dropY = 0;
       g.position.y = g.userData.baseY;
       return;
     }
     const i = order.get(g.userData.pid) ?? 0;
     const start = n > 1 ? (i / (n - 1)) * plan.buildTime : 0;
     const local = (t - start) / plan.drop;
+    const drop = (1 - ease(Math.min(1, Math.max(0, local)))) * 8;
     g.visible = local > 0;
-    g.position.y = g.userData.baseY + (1 - ease(Math.min(1, Math.max(0, local)))) * 8;
+    g.userData.revealed = g.visible; // pieces with their own motion are only shown once they have dropped in
+    g.userData.dropY = drop;
+    g.position.y = g.userData.baseY + drop;
   });
+  // pieces with their own motion (spin, move, ...) follow the same clock as the video
+  if (plan.pieceAnims !== false) applyPieceAnims(brickGroup, t);
+  else resetPieceAnims(brickGroup);
   if (camera.fov !== plan.fov) {
     camera.fov = plan.fov;
     camera.updateProjectionMatrix();

@@ -8,6 +8,7 @@ A 3D brick builder that runs in the browser, made with React and Three.js. Place
 - **Around 120 pieces** in 15 groups: bricks, flat bricks and tiles, windows and doors, roofs, logs, trees, plants and stones, people, vehicles, two-wheelers, railway, water and boats, furniture, home appliances and kitchen utensils.
 - **Stacking.** Pieces stack on top of each other and drop down if what is under them is removed. Pieces that can't be built on (a roof, a tree, a car) show a red preview.
 - **Rotation** in 90° steps.
+- **Customizable roofs.** A Flat roof and a Triangle roof you size and style yourself.
 - **Keyboard shortcuts** for every action, with a built-in list (press **?**).
 - **Undo and redo** for placing, removing, clearing, loading and resizing.
 - **Colors.** Eight colors for bricks, upholstery, hulls, frames and similar parts.
@@ -122,13 +123,27 @@ Press **?** or **H** (or the **Keys** button) to see this list in the app. On a 
 | | **O** | Camera: Orbit, Angles, Home tour |
 | | **K** | Save the current camera angle or home tour stop |
 | | **P** / **G** / **V** | Preview / export GIF / export video |
+| Customize roofs | **{ }** / **< >** / **( )** | Width or ridge length / length or span / thickness or ridge height, smaller or larger |
+| | **Y** / **I** (+ **Shift** to go back) | Cycle the surface / cycle the edge or roof shape |
+| | **L** | Skylight or ridge cap on or off |
 | Help | **?** or **H** | Show the shortcut list |
+
+## Customizable roofs
+
+Pick **Flat roof (custom)** or **Triangle roof (custom)** from the **Custom roofs** group. A **customize** card appears over the 3D view, and the preview updates as you change it. Reset puts everything back to the defaults. Each placed roof keeps the settings it was made with.
+
+| Piece | Settings |
+|---|---|
+| Flat roof | **Width** and **Length** (2 to 16 studs), **Thickness** (a quarter to a full brick), **Surface** (plain, gravel, tiles, metal, glass or green roof), **Edge** (none, parapet or rail) and a **Skylight** option. The roof takes your chosen color |
+| Triangle roof | **Length** along the ridge (1 to 16) and **Span** across the slopes (2 to 12), **Ridge height** (half a brick to 4 bricks), **Surface** (plain, tiles, metal or glass), **Shape** (two slopes, or one slope for a lean-to) and a **Ridge cap** option |
+
+Things can be stacked on the Flat roof but not on the Triangle roof. Press R to turn either one. Large roofs with tiles or metal ribs have more parts, so a very big tiled roof can slow older machines.
 
 ## Saving and loading
 
 Your build is saved in the browser automatically after every change, so a refresh restores it. The autosave is stored per browser and per address.
 
-**Save JSON** downloads `builder-structure.json`. **Load JSON** replaces the current build, including the baseplate size. A file is checked before it loads, and a bad file is rejected with a message while your current build stays as it was.
+**Save JSON** downloads `hobby-structure.json`. **Load JSON** replaces the current build, including the baseplate size. A file is checked before it loads, and a bad file is rejected with a message while your current build stays as it was.
 
 ```json
 {
@@ -136,7 +151,9 @@ Your build is saved in the browser automatically after every change, so a refres
   "version": 1,
   "baseSize": 20,
   "pieces": [
-    { "type": "b2x4", "x": 2, "z": 3, "y": 0, "rot": 1, "color": "#D01012" }
+    { "type": "b2x4", "x": 2, "z": 3, "y": 0, "rot": 1, "color": "#D01012" },
+    { "type": "triroof", "x": 6, "z": 3, "y": 0, "rot": 0, "color": "#D01012",
+      "opts": { "len": 6, "span": 4, "pitch": 2, "surface": "tiles", "shape": "gable", "cap": true } }
   ]
 }
 ```
@@ -145,6 +162,9 @@ Your build is saved in the browser automatically after every change, so a refres
 - `x` and `z` are grid positions. `y` is the layer, in multiples of 0.25 (thin pieces such as tracks and tiles are a quarter of a brick tall).
 - `rot` is 0 to 3, in 90° steps.
 - `color` is a hex color like `#D01012`.
+- `opts` appears only on customizable pieces and holds their settings. Missing or out-of-range settings are replaced with defaults or clamped when the file loads.
+
+Files saved before the project was renamed (with `"app": "lego-builder"`) still load, and an autosave stored under the old name is picked up and moved to the new one automatically.
 
 Limits: baseplate 8 to 64, up to 2000 pieces. Size, height and stacking rules come from the piece catalog when a file loads, so renaming or removing a piece type in `hobbyBuilderPieces.js` breaks saves that use it.
 
@@ -211,6 +231,7 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 - `w` and `d` are the footprint in studs (x and z).
 - `h` is the height in brick layers. Use 0.25 for thin pieces.
 - `canStackOn` says whether other pieces can be placed on top.
+- For a piece whose size or style the user can choose, use `regCustom(key, name, params, size, build)` instead. `params` lists the controls (number, choice or on/off), `size(opts)` returns the footprint and height for the chosen settings, and `build(color, opts)` draws it. See **Flat roof** and **Triangle roof** in the same file.
 - Build the piece with its origin at the minimum corner of its footprint and its front facing +z. The file's header comment explains the units.
 - Add the piece's key to a group in the `GROUPS` array at the bottom of the file so it appears in the sidebar.
 
@@ -241,4 +262,3 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 - Saved camera angles and home tour stops are not stored in the JSON file.
 - Walk mode has no collision, so you can walk through walls and furniture. Place your stops where you want the camera to be.
 - There is no multi-select or move tool. To reposition a piece, remove it and place it again.
-# hobby-builder

@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { getThumb, peekThumb } from "./thumbs";
+import { MOTIONS, AXES, cleanAnim, newAnim, applyPieceAnims, resetPieceAnims } from "./pieceAnimations";
 import { planAnimation, playPreview, recordGif, recordVideo, downloadBlob } from "./animation";
 import { MIN_N, MAX_N, serializeStructure, parseStructure, loadSaved, autosave } from "./structureIO";
-import { BH, SH, studGeo, TYPES, GROUPS, buildPiece, stackInfo, settle } from "./hobbyBuilderPieces";
+import { BH, SH, studGeo, TYPES, GROUPS, buildPiece, stackInfo, settle, typeDims, cleanOpts } from "./hobbyBuilderPieces";
 
 /* ---------- constants ---------- */
 const DEFAULT_N = 20; // starting baseplate: N x N studs
@@ -137,6 +138,15 @@ const SHORTCUTS = [
     ["M", "Open / close the Animate panel"], ["U", "Pieces: build-up / finished"], ["O", "Camera: Orbit, Angles, Home tour"],
     ["K", "Save a camera angle or tour stop"], ["P", "Preview"], ["G", "Export GIF"], ["V", "Export video"], ["Esc", "Cancel a running export"],
   ]],
+  ["Piece motion", [
+    ["A", "Motion mode: click a piece to give it motion"], ["T", "Play / pause piece motion"], ["Y / Shift+Y", "Cycle the motion type"],
+    ["I", "Cycle the direction (forward, side, up)"], ["{ and }", "Speed  - and +"], ["< and >", "Distance, angle or size  - and +"],
+    ["( and )", "Delay  - and +"], ["L", "Reverse, or go-and-return / repeat"], ["Delete", "Remove the selected piece's motion"],
+  ]],
+  ["Customize roofs", [
+    ["{ and }", "Width / ridge length  - and +"], ["< and >", "Length / span  - and +"], ["( and )", "Thickness / ridge height  - and +"],
+    ["Y / Shift+Y", "Cycle the surface"], ["I / Shift+I", "Cycle the edge or roof shape"], ["L", "Skylight / ridge cap on or off"],
+  ]],
   ["Help", [["? or H", "Show this list"]]],
 ];
 
@@ -150,6 +160,16 @@ const HELP_CSS = `
 .help li{display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:13px}
 .help kbd{flex-shrink:0;padding:1px 7px;border-radius:5px;border:1px solid #5B74A6;background:#0F1A33;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:nowrap}
 .help li span{text-align:right}
+.custom{position:absolute;z-index:2;top:12px;left:12px;width:270px;max-height:calc(100% - 90px);overflow-y:auto;padding:10px 12px;border-radius:12px;background:rgba(20,33,61,.96);border:1px solid #33466b;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.prm{display:grid;grid-template-columns:96px 1fr 34px;align-items:center;gap:6px;margin:7px 0;font-size:13px}
+.prm input[type=range]{width:100%;margin:0}
+.prm output{text-align:right;font-variant-numeric:tabular-nums}
+.prm.sel{display:block}
+.prm.sel>span{display:block;margin-bottom:4px}
+.prm.tog{display:flex;gap:8px}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip.sm{padding:2px 8px;font-size:12px}
+.badge{padding:0 6px;border-radius:999px;background:#FFD23F;color:#14213D;font-size:10px;font-weight:700}
 `;
 
 /* ---------- component ---------- */
@@ -174,6 +194,12 @@ export default function HobbyBuilder() {
   const [query, setQuery] = useState(""); // piece search text
   const [animOpen, setAnimOpen] = useState(false); // animation panel
   const [helpOpen, setHelpOpen] = useState(false); // keyboard shortcut list
+  const [optsByType, setOptsByType] = useState({}); // chosen settings for customizable pieces, per piece type
+  const [selectedId, setSelectedId] = useState(null); // piece picked in Motion mode
+  const [playing, setPlaying] = useState(false); // piece motion playing in the live view
+  const [animPieces, setAnimPieces] = useState(true); // include piece motion in previews and exports
+  const lastMotionEdit = useRef({ id: null, t: 0 });
+  const coalesce = useRef(false); // merges a run of slider changes into one undo step
   const actions = useRef({}); // latest action functions, so keyboard shortcuts never use stale state
 
   const [N, setN] = useState(init ? init.N : DEFAULT_N);
@@ -189,8 +215,10 @@ export default function HobbyBuilder() {
   const [mode, setMode] = useState("build");
 
   const type = TYPES[typeKey];
-  const [w, d] = rot % 2 ? [type.d, type.w] : [type.w, type.d];
-  live.current = { N, bricks, color, type, rot, w, d, mode };
+  const opts = type.params ? cleanOpts(type, optsByType[typeKey]) : null; // null for ordinary pieces
+  const dm = typeDims(type, opts); // footprint, height and stackability for these settings
+  const [w, d] = rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
+  live.current = { N, bricks, color, type, rot, w, d, dm, opts, mode };
 
   /* scene setup (once) */
   useEffect(() => {
@@ -277,8 +305,8 @@ export default function HobbyBuilder() {
       }
       const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
       const p = hit.point.clone().addScaledVector(n, 0.1);
-      const x = Math.min(Math.max(Math.round(p.x + N / 2 - w / 2), 0), N - w);
-      const z = Math.min(Math.max(Math.round(p.z + N / 2 - d / 2), 0), N - d);
+      const x = Math.min(Math.max(Math.round(p.x + N / 2 - w / 2), 0), Math.max(0, N - w));
+      const z = Math.min(Math.max(Math.round(p.z + N / 2 - d / 2), 0), Math.max(0, N - d));
       const { lvl: y, blocked } = stackInfo(bricks, x, z, w, d);
       three.current.hover = { x, z, y, ok: !blocked };
       if (ghost) {
@@ -322,8 +350,12 @@ export default function HobbyBuilder() {
       const id = hit && hit.object.userData.id;
       if (id) setBricks((prev) => settle(prev.filter((b) => b.id !== id)));
     };
+    const selectAt = (e) => {
+      const hit = pick(e);
+      setSelectedId(hit && hit.object.userData.id ? hit.object.userData.id : null);
+    };
     const placeAt = (e) => {
-      const { color, type, rot, w, d } = live.current;
+      const { color, type, rot, w, d, dm, opts } = live.current;
       updateHover(e);
       const h = three.current.hover;
       if (h && h.ok)
@@ -332,7 +364,7 @@ export default function HobbyBuilder() {
           if (blocked) return prev;
           return [
             ...prev,
-            { id: ++idCounter.current, type: type.key, rot, x: h.x, z: h.z, y: lvl, w, d, h: type.h, top: type.top, color },
+            { id: ++idCounter.current, type: type.key, rot, x: h.x, z: h.z, y: lvl, w, d, h: dm.h, top: dm.top, color, ...(opts ? { opts } : {}) },
           ];
         });
     };
@@ -341,6 +373,7 @@ export default function HobbyBuilder() {
       down = null;
       if (!wasClick || walk.active) return; // no placing while walking
       if (live.current.mode === "remove") removeAt(e);
+      else if (live.current.mode === "animate") selectAt(e);
       else placeAt(e);
     };
     const onLeave = () => {
@@ -384,12 +417,17 @@ export default function HobbyBuilder() {
         walk.pos.y = Math.min(40, Math.max(0.6, walk.pos.y));
         applyWalk();
       }
-      if (!three.current.recording) renderer.render(scene, camera);
+      if (!three.current.recording) {
+        const tc = three.current;
+        if (tc.playing) applyPieceAnims(brickGroup, (now - tc.playStart) / 1000); // piece motion
+        if (tc.selBox) tc.selBox.update();
+        renderer.render(scene, camera);
+      }
       raf = requestAnimationFrame(loop);
     };
     loop();
 
-    three.current = { scene, camera, renderer, brickGroup, base, sun, orbit, updateCamera, walk, applyWalk, placeAt, removeAt, lastPointer: null, ghost: null, hover: null };
+    three.current = { scene, camera, renderer, brickGroup, base, sun, orbit, updateCamera, walk, applyWalk, placeAt, removeAt, selectAt, playing: false, playStart: 0, selBox: null, lastPointer: null, ghost: null, hover: null };
 
     return () => {
       cancelAnimationFrame(raf);
@@ -408,6 +446,7 @@ export default function HobbyBuilder() {
   useEffect(() => {
     if (prevState.current.N === N && prevState.current.bricks === bricks) return;
     if (skipHistory.current) skipHistory.current = false; // this change came from undo or redo
+    else if (coalesce.current) coalesce.current = false; // a run of slider changes counts as one step
     else {
       past.current.push(prevState.current);
       if (past.current.length > 100) past.current.shift();
@@ -451,12 +490,14 @@ export default function HobbyBuilder() {
       };
       switch (k) {
         case "b": return A.setMode("build");
+        case "a": return A.setMode("animate");
+        case "t": return A.play();
         case "x": return A.setMode("remove");
         case "r": return A.rotate(e.shiftKey ? -1 : 1);
         case " ":
         case "enter": return onCanvas && go(A.actAtPointer);
         case "delete":
-        case "backspace": return e.shiftKey && go(A.clear);
+        case "backspace": return e.shiftKey ? go(A.clear) : A.clearMotion();
         case "escape": return A.escape();
         case "[": return A.category(-1);
         case "]": return A.category(1);
@@ -481,6 +522,15 @@ export default function HobbyBuilder() {
         case "p": return A.run("preview");
         case "g": return A.run("gif");
         case "v": return A.run("video");
+        case "{": return A.customize("num", 0, -1);
+        case "}": return A.customize("num", 0, 1);
+        case "<": return A.customize("num", 1, -1);
+        case ">": return A.customize("num", 1, 1);
+        case "(": return A.customize("num", 2, -1);
+        case ")": return A.customize("num", 2, 1);
+        case "y": return A.customize("sel", 0, e.shiftKey ? -1 : 1);
+        case "i": return A.customize("sel", 1, e.shiftKey ? -1 : 1);
+        case "l": return A.customize("tog", 0, 1);
         case "?": case "h": return A.toggleHelp();
         default: return undefined;
       }
@@ -509,13 +559,36 @@ export default function HobbyBuilder() {
     if (!brickGroup) return;
     brickGroup.clear();
     for (const b of bricks) {
-      const g = buildPiece(TYPES[b.type], b.color, b.id, b.rot);
-      g.position.set(b.x - N / 2, b.y * BH, b.z - N / 2);
-      g.userData.pid = b.id;
-      g.userData.baseY = b.y * BH;
-      brickGroup.add(g);
+      const g = buildPiece(TYPES[b.type], b.color, b.id, b.rot, null, b.opts);
+      // each piece sits in a holder centred on its footprint, so motion can turn and scale it about its middle
+      const holder = new THREE.Group();
+      const base = new THREE.Vector3(b.x - N / 2 + b.w / 2, b.y * BH, b.z - N / 2 + b.d / 2);
+      holder.position.copy(base);
+      g.position.set(-b.w / 2, 0, -b.d / 2);
+      holder.add(g);
+      holder.userData = { pid: b.id, baseY: b.y * BH, base, rot: b.rot, h: b.h, anim: b.anim || null };
+      brickGroup.add(holder);
     }
   }, [bricks, N]);
+
+  /* outline around the piece selected in Motion mode */
+  useEffect(() => {
+    const t = three.current;
+    if (!t.scene) return;
+    if (t.selBox) {
+      t.scene.remove(t.selBox);
+      t.selBox.geometry.dispose();
+      t.selBox = null;
+    }
+    if (selectedId == null || mode !== "animate") return;
+    const holder = t.brickGroup.children.find((c) => c.userData.pid === selectedId);
+    if (!holder) {
+      setSelectedId(null); // the piece was removed
+      return;
+    }
+    t.selBox = new THREE.BoxHelper(holder, 0xffd23f);
+    t.scene.add(t.selBox);
+  }, [selectedId, bricks, N, mode]);
 
   /* rebuild baseplate (and fit lights + camera) when its size changes */
   useEffect(() => {
@@ -568,11 +641,11 @@ export default function HobbyBuilder() {
     if (t.ghost) t.scene.remove(t.ghost);
     if (t.ghostMat) t.ghostMat.dispose();
     t.ghostMat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.55 });
-    const g = buildPiece(type, color, 0, rot, t.ghostMat);
+    const g = buildPiece(type, color, 0, rot, t.ghostMat, opts);
     g.visible = false;
     t.scene.add(g);
     t.ghost = g;
-  }, [typeKey, rot, color, mode]);
+  }, [typeKey, rot, color, mode, JSON.stringify(opts)]);
 
   /* keep the creation in the browser so a refresh doesn't lose it */
   useEffect(() => autosave(N, bricks), [N, bricks]);
@@ -582,10 +655,10 @@ export default function HobbyBuilder() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "builder-structure.json";
+    a.download = "hobby-structure.json";
     a.click();
     URL.revokeObjectURL(url);
-    setNote(`Saved ${bricks.length} piece${bricks.length === 1 ? "" : "s"} to builder-structure.json`);
+    setNote(`Saved ${bricks.length} piece${bricks.length === 1 ? "" : "s"} to hobby-structure.json`);
   };
   const loadJson = async (e) => {
     const file = e.target.files[0];
@@ -675,6 +748,7 @@ export default function HobbyBuilder() {
     const savedFov = t.camera.fov;
     const order = new Map([...bricks].sort((a, b) => a.id - b.id).map((b, i) => [b.id, i]));
     const plan = planAnimation(bricks.length, anim, camMode, shots, { stops, secs: stopSecs });
+    plan.pieceAnims = animPieces;
     const env = { ...t, startTheta: saved.theta, startPhi: saved.phi, startRadius: saved.radius };
     t.recording = true;
     t.renderer.domElement.style.pointerEvents = "none";
@@ -685,8 +759,8 @@ export default function HobbyBuilder() {
       const out = await run(env, plan, order, setProgress, () => cancel.v);
       if (kind === "preview") setNote("");
       else if (out) {
-        downloadBlob(out.blob, "lego-animation." + out.ext);
-        setNote("Saved lego-animation." + out.ext);
+        downloadBlob(out.blob, "hobby-animation." + out.ext);
+        setNote("Saved hobby-animation." + out.ext);
       } else setNote("Export cancelled");
     } catch (err) {
       setNote("Couldn't export: " + err.message);
@@ -698,8 +772,10 @@ export default function HobbyBuilder() {
       else t.updateCamera();
       t.brickGroup.children.forEach((g) => {
         g.visible = true;
+        g.userData.revealed = true;
         g.position.y = g.userData.baseY;
       });
+      resetPieceAnims(t.brickGroup, true);
       t.renderer.domElement.style.pointerEvents = "";
       t.recording = false;
       setBusy("");
@@ -735,6 +811,73 @@ export default function HobbyBuilder() {
     if (window.confirm("Remove all pieces?")) setBricks([]);
   };
   const on = (cond) => " btn" + (cond ? " on" : "");
+  const selected = bricks.find((b) => b.id === selectedId) || null;
+  const motion = selected ? selected.anim || null : null;
+  const mdef = motion ? MOTIONS.find((m) => m.key === motion.type) : null;
+  const withAnim = (b, a) => {
+    const nb = { ...b };
+    if (a) nb.anim = a;
+    else delete nb.anim;
+    return nb;
+  };
+  const togglePlay = () => {
+    const t = three.current;
+    if (!t.playing) {
+      t.playing = true;
+      t.playStart = performance.now();
+      setPlaying(true);
+    } else {
+      t.playing = false;
+      resetPieceAnims(t.brickGroup);
+      setPlaying(false);
+    }
+  };
+  // patch = null removes the motion; { type } picks a motion; anything else adjusts the current one
+  const setMotion = (patch) => {
+    if (!selected) return;
+    const cur = selected.anim || null;
+    let next;
+    if (patch === null) next = null;
+    else if (patch.type && (!cur || patch.type !== cur.type)) next = { ...newAnim(patch.type), speed: cur ? cur.speed : 1, delay: cur ? cur.delay : 0 };
+    else next = cleanAnim({ ...(cur || newAnim("spin")), ...patch });
+    const now = Date.now();
+    coalesce.current = lastMotionEdit.current.id === selected.id && now - lastMotionEdit.current.t < 700;
+    lastMotionEdit.current = { id: selected.id, t: now };
+    setBricks((prev) => prev.map((b) => (b.id === selected.id ? withAnim(b, next) : b)));
+    if (next && !three.current.playing) togglePlay(); // show it straight away
+  };
+  const applyToSame = () => {
+    if (!selected) return;
+    const count = bricks.filter((b) => b.type === selected.type).length;
+    coalesce.current = false;
+    setBricks((prev) => prev.map((b) => (b.type === selected.type ? withAnim(b, selected.anim ? { ...selected.anim } : null) : b)));
+    setNote("Applied to " + count + " × " + TYPES[selected.type].name);
+  };
+  // keyboard version of the controls: { } speed, < > distance / angle / size, ( ) delay, Y type, I direction, L reverse
+  const motionKey = (kind, idx, dir) => {
+    if (!selected) return setNote("Click a piece first, then use these keys");
+    const types = ["none", ...MOTIONS.map((m) => m.key)];
+    if (kind === "sel" && idx === 0) {
+      const next = types[(types.indexOf(motion ? motion.type : "none") + dir + types.length) % types.length];
+      return setMotion(next === "none" ? null : { type: next });
+    }
+    if (!motion) return setNote("Give the piece a motion first (press Y)");
+    if (kind === "num") {
+      const specs = [{ key: "speed", min: 0.25, max: 4, step: 0.25 }, mdef.amount && { key: "amount", ...mdef.amount }, { key: "delay", min: 0, max: 8, step: 0.5 }].filter(Boolean);
+      const sp = specs[idx];
+      return sp ? setMotion({ [sp.key]: motion[sp.key] + dir * sp.step }) : undefined;
+    }
+    if (kind === "sel" && mdef.axis) {
+      const keys = AXES.map(([k]) => k);
+      return setMotion({ axis: keys[(keys.indexOf(motion.axis) + dir + keys.length) % keys.length] });
+    }
+    if (kind === "tog") {
+      if (mdef.reverse) return setMotion({ reverse: !motion.reverse });
+      if (mdef.loop) return setMotion({ loop: motion.loop === "repeat" ? "pingpong" : "repeat" });
+    }
+    return undefined;
+  };
+  const setOpt = (key, val) => setOptsByType((p) => ({ ...p, [typeKey]: { ...opts, [key]: val } }));
 
   actions.current = {
     busy: !!busy,
@@ -753,6 +896,7 @@ export default function HobbyBuilder() {
       const t = three.current;
       if (t.walk.active || !t.lastPointer) return setNote("Move the pointer over the 3D view first");
       if (mode === "remove") t.removeAt(t.lastPointer);
+      else if (mode === "animate") t.selectAt(t.lastPointer);
       else t.placeAt(t.lastPointer);
     },
     escape: () => {
@@ -828,6 +972,25 @@ export default function HobbyBuilder() {
       exportAnimation(kind);
     },
     toggleHelp: () => setHelpOpen((o) => !o),
+    play: togglePlay,
+    clearMotion: () => {
+      if (mode === "animate" && motion) setMotion(null);
+    },
+    customize: (kind, idx, dir) => {
+      if (mode === "animate") return motionKey(kind, idx, dir);
+      if (!type.params) return setNote("Select a customizable piece first, such as Flat roof or Triangle roof");
+      const pr = type.params.filter((p) => p.kind === kind)[idx];
+      if (!pr) return undefined;
+      const cur = opts[pr.key];
+      let val;
+      if (kind === "num") val = Math.min(pr.max, Math.max(pr.min, cur + dir * pr.step));
+      else if (kind === "sel") {
+        const i = pr.options.findIndex(([v]) => v === cur);
+        val = pr.options[(i + dir + pr.options.length) % pr.options.length][0];
+      } else val = !cur;
+      setOpt(pr.key, val);
+      return setMode("build");
+    },
   };
 
   return (
@@ -840,7 +1003,10 @@ export default function HobbyBuilder() {
         <div className="seg" role="group" aria-label="Mode">
           <button className={on(mode === "build").trim()} onClick={() => setMode("build")} title="Place pieces (B)">Build</button>
           <button className={on(mode === "remove").trim()} onClick={() => setMode("remove")} title="Remove pieces (X)">Remove</button>
+          <button className={on(mode === "animate").trim()} onClick={() => setMode("animate")} title="Give a piece its own motion (A)">Motion</button>
         </div>
+
+        <button className={on(playing).trim()} onClick={togglePlay} title="Play or pause piece motion (T)">{playing ? "Pause" : "Play"}</button>
 
         <div className="grp">
           <button className="btn" onClick={() => setRot((r) => (r + 1) % 4)} title="Rotate the piece (R, or Shift+R the other way)">Rotate</button>
@@ -922,11 +1088,12 @@ export default function HobbyBuilder() {
                   key={k}
                   className={"card" + (typeKey === k ? " on" : "")}
                   aria-pressed={typeKey === k}
-                  title={`${t.name} · ${t.w}×${t.d} studs${t.top ? "" : " · nothing can be stacked on it"}`}
+                  title={t.custom ? `${t.name} · choose its size and style after selecting it` : `${t.name} · ${t.w}×${t.d} studs${t.top ? "" : " · nothing can be stacked on it"}`}
                   onClick={() => { setTypeKey(k); setMode("build"); }}
                 >
                   <Thumb k={k} color={color} />
                   <span className="nm">{t.name}</span>
+                  {t.custom && <span className="badge">custom</span>}
                 </button>
               );
             })}
@@ -948,14 +1115,132 @@ export default function HobbyBuilder() {
                 <strong>{type.name}</strong>
                 <span>{w}×{d} studs · turned {rot * 90}°</span>
               </>
-            ) : (
+            ) : mode === "remove" ? (
               <strong>Remove mode: click a piece to delete it</strong>
+            ) : (
+              <strong>Motion mode: click a piece, then choose how it moves</strong>
             )}
             <span>{bricks.length} piece{bricks.length === 1 ? "" : "s"}</span>
+            {bricks.some((b) => b.anim) && <span>{bricks.filter((b) => b.anim).length} with motion</span>}
             <span className="hint">
               {walkMode ? "Open Animate to save a stop in each room" : "Click or Space to place · Drag to orbit · R rotate · ? all shortcuts"}
             </span>
           </div>
+
+          {type.params && mode === "build" && !walkMode && (
+            <div className="custom" role="group" aria-label={"Customize " + type.name}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                <strong>{type.name}</strong>
+                <button className="btn sm" style={{ flex: "none" }} onClick={() => setOptsByType((p) => ({ ...p, [typeKey]: undefined }))}>Reset</button>
+              </div>
+              <p className="note" style={{ margin: "0 0 6px" }}>{w}×{d} studs · {dm.h} layer{dm.h === 1 ? "" : "s"} tall</p>
+              {type.params.map((pr) =>
+                pr.kind === "num" ? (
+                  <label className="prm" key={pr.key}>
+                    <span>{pr.label}</span>
+                    <input type="range" min={pr.min} max={pr.max} step={pr.step} value={opts[pr.key]} onChange={(e) => setOpt(pr.key, Number(e.target.value))} />
+                    <output>{opts[pr.key]}</output>
+                  </label>
+                ) : pr.kind === "sel" ? (
+                  <div className="prm sel" key={pr.key}>
+                    <span>{pr.label}</span>
+                    <div className="chips">
+                      {pr.options.map(([val, lab]) => (
+                        <button key={val} className={"chip sm" + (opts[pr.key] === val ? " on" : "")} aria-pressed={opts[pr.key] === val} onClick={() => setOpt(pr.key, val)}>{lab}</button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <label className="prm tog" key={pr.key}>
+                    <input type="checkbox" checked={opts[pr.key]} onChange={(e) => setOpt(pr.key, e.target.checked)} />
+                    <span>{pr.label}</span>
+                  </label>
+                )
+              )}
+              <p className="note">Keys: {"{ }"} width, {"< >"} length, {"( )"} height, Y and I styles, L toggle</p>
+            </div>
+          )}
+
+          {mode === "animate" && !walkMode && (
+            <div className="custom" role="group" aria-label="Piece motion">
+              {!selected ? (
+                <p className="note" style={{ margin: 0 }}>Click a piece to give it motion. Press T to play or pause. Motion is included in videos and GIFs.</p>
+              ) : (
+                <>
+                  <div className="row" style={{ justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                    <strong>{TYPES[selected.type].name}</strong>
+                    <button className="btn sm" style={{ flex: "none" }} onClick={() => setSelectedId(null)}>Done</button>
+                  </div>
+                  <div className="prm sel">
+                    <span>Motion</span>
+                    <div className="chips">
+                      <button className={"chip sm" + (!motion ? " on" : "")} aria-pressed={!motion} onClick={() => setMotion(null)}>None</button>
+                      {MOTIONS.map((m) => (
+                        <button key={m.key} className={"chip sm" + (motion && motion.type === m.key ? " on" : "")} aria-pressed={!!motion && motion.type === m.key} title={m.hint} onClick={() => setMotion({ type: m.key })}>{m.label}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {motion && (
+                    <>
+                      <p className="note" style={{ margin: "0 0 4px" }}>{mdef.hint}</p>
+                      {mdef.axis && (
+                        <div className="prm sel">
+                          <span>Direction</span>
+                          <div className="chips">
+                            {AXES.map(([k, lab]) => (
+                              <button key={k} className={"chip sm" + (motion.axis === k ? " on" : "")} aria-pressed={motion.axis === k} onClick={() => setMotion({ axis: k })}>{lab}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <label className="prm">
+                        <span>Speed</span>
+                        <input type="range" min={0.25} max={4} step={0.25} value={motion.speed} onChange={(e) => setMotion({ speed: Number(e.target.value) })} />
+                        <output>×{motion.speed}</output>
+                      </label>
+                      {mdef.amount && (
+                        <label className="prm">
+                          <span>{mdef.amount.label.split(" (")[0]}</span>
+                          <input type="range" min={mdef.amount.min} max={mdef.amount.max} step={mdef.amount.step} value={motion.amount} onChange={(e) => setMotion({ amount: Number(e.target.value) })} />
+                          <output>{motion.amount}</output>
+                        </label>
+                      )}
+                      <label className="prm">
+                        <span>Delay (s)</span>
+                        <input type="range" min={0} max={8} step={0.5} value={motion.delay} onChange={(e) => setMotion({ delay: Number(e.target.value) })} />
+                        <output>{motion.delay}</output>
+                      </label>
+                      {mdef.loop && (
+                        <div className="prm sel">
+                          <span>Repeat</span>
+                          <div className="chips">
+                            <button className={"chip sm" + (motion.loop === "pingpong" ? " on" : "")} onClick={() => setMotion({ loop: "pingpong" })}>Out and back</button>
+                            <button className={"chip sm" + (motion.loop === "repeat" ? " on" : "")} onClick={() => setMotion({ loop: "repeat" })}>Jump back</button>
+                          </div>
+                        </div>
+                      )}
+                      {mdef.reverse && (
+                        <label className="prm tog">
+                          <input type="checkbox" checked={motion.reverse} onChange={(e) => setMotion({ reverse: e.target.checked })} />
+                          <span>Reverse direction</span>
+                        </label>
+                      )}
+                      {mdef.turn && (
+                        <label className="prm tog">
+                          <input type="checkbox" checked={motion.turn} onChange={(e) => setMotion({ turn: e.target.checked })} />
+                          <span>Face the way it travels</span>
+                        </label>
+                      )}
+                    </>
+                  )}
+                  <div className="row" style={{ marginTop: 8, marginBottom: 0 }}>
+                    <button className="btn sm" onClick={togglePlay}>{playing ? "Pause" : "Play"}</button>
+                    <button className="btn sm" onClick={applyToSame} title="Give every placed piece of this kind the same motion">Apply to all {TYPES[selected.type].name}</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {note && <div className="toast" role="status">{note}</div>}
 
@@ -970,6 +1255,12 @@ export default function HobbyBuilder() {
               <div className="row">
                 <button className={on(anim === "build").trim()} onClick={() => setAnim("build")} disabled={!!busy}>Build-up</button>
                 <button className={on(anim === "finished").trim()} onClick={() => setAnim("finished")} disabled={!!busy}>Finished</button>
+              </div>
+
+              <div className="h">Piece motion</div>
+              <div className="row">
+                <button className={on(animPieces).trim()} onClick={() => setAnimPieces(true)} disabled={!!busy}>Include</button>
+                <button className={on(!animPieces).trim()} onClick={() => setAnimPieces(false)} disabled={!!busy}>Leave out</button>
               </div>
 
               <div className="h">Camera</div>

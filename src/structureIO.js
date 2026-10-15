@@ -1,10 +1,13 @@
-import { TYPES, settle } from "./hobbyBuilderPieces";
+import { TYPES, settle, cleanOpts, typeDims } from "./hobbyBuilderPieces";
+import { cleanAnim } from "./pieceAnimations";
 
 export const MIN_N = 8;
 export const MAX_N = 64;
 const APP = "hobby-builder";
+const OLD_APP = "lego-builder"; // files saved before the rename still load
 const MAX_PIECES = 2000;
 export const STORAGE_KEY = "hobby-builder:autosave:v1";
+const OLD_STORAGE_KEY = "lego-builder:autosave:v1"; // autosave from before the rename
 
 /* Only the fields needed to rebuild a piece are saved. Size, height and
    stackability are derived from the piece type when loading. */
@@ -14,7 +17,7 @@ export function serializeStructure(N, pieces) {
       app: APP,
       version: 1,
       baseSize: N,
-      pieces: pieces.map(({ type, x, z, y, rot, color }) => ({ type, x, z, y, rot, color })),
+      pieces: pieces.map(({ type, x, z, y, rot, color, opts, anim }) => ({ type, x, z, y, rot, color, ...(opts ? { opts } : {}), ...(anim ? { anim } : {}) })),
     },
     null,
     2
@@ -30,7 +33,7 @@ export function parseStructure(text) {
   } catch {
     throw new Error("That file isn't valid JSON.");
   }
-  if (!data || data.app !== APP || !Array.isArray(data.pieces))
+  if (!data || (data.app !== APP && data.app !== OLD_APP) || !Array.isArray(data.pieces))
     throw new Error("This doesn't look like a Hobby Builder file.");
   const N = data.baseSize;
   if (!Number.isInteger(N) || N < MIN_N || N > MAX_N)
@@ -44,10 +47,13 @@ export function parseStructure(text) {
       throw new Error(`Piece ${i + 1}: invalid position or rotation.`);
     if (typeof p.color !== "string" || !/^#[0-9a-f]{6}$/i.test(p.color))
       throw new Error(`Piece ${i + 1}: invalid color.`);
-    const [w, d] = p.rot % 2 ? [t.d, t.w] : [t.w, t.d];
+    const opts = t.params ? cleanOpts(t, p.opts) : null; // customizable pieces keep their settings
+    const anim = p.anim ? cleanAnim(p.anim) : null; // a piece's own motion, if it has one
+    const dm = typeDims(t, opts);
+    const [w, d] = p.rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
     if (p.x < 0 || p.z < 0 || p.x + w > N || p.z + d > N)
       throw new Error(`Piece ${i + 1} is outside the baseplate.`);
-    return { id: i + 1, type: t.key, rot: p.rot, x: p.x, z: p.z, y: p.y, w, d, h: t.h, top: t.top, color: p.color };
+    return { id: i + 1, type: t.key, rot: p.rot, x: p.x, z: p.z, y: p.y, w, d, h: dm.h, top: dm.top, color: p.color, ...(opts ? { opts } : {}), ...(anim ? { anim } : {}) };
   });
   return { N, pieces: settle(pieces) };
 }
@@ -55,7 +61,7 @@ export function parseStructure(text) {
 /* Read the browser's autosave, or null if there is none or it's unusable. */
 export function loadSaved() {
   try {
-    const text = localStorage.getItem(STORAGE_KEY);
+    const text = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(OLD_STORAGE_KEY);
     return text ? parseStructure(text) : null;
   } catch {
     return null;

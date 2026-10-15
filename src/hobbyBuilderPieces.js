@@ -41,6 +41,30 @@ function studs(g, w, d, y, m) {
 /* ---------- catalog ---------- */
 export const TYPES = {};
 const reg = (key, name, w, d, h, top, build) => (TYPES[key] = { key, name, w, d, h, top, build });
+
+/* Customizable pieces: the app shows controls for `params`, and size(opts) gives the
+   footprint (w, d), height in brick layers (h) and whether things can stack on it (top).
+   params: { key, label, kind: "num" (min, max, step) | "sel" (options: [[value, label]]) | "tog", def } */
+export const defaultOpts = (t) => (t.params ? Object.fromEntries(t.params.map((p) => [p.key, p.def])) : null);
+// Fill in defaults and clamp or snap anything that is missing or out of range (used for loaded files too)
+export function cleanOpts(t, raw) {
+  const out = defaultOpts(t);
+  if (!t.params || !raw || typeof raw !== "object") return out;
+  for (const p of t.params) {
+    const v = raw[p.key];
+    if (p.kind === "num" && Number.isFinite(v)) {
+      const snapped = Math.round((v - p.min) / p.step) * p.step + p.min;
+      out[p.key] = Math.min(p.max, Math.max(p.min, +snapped.toFixed(4)));
+    } else if (p.kind === "sel" && p.options.some(([val]) => val === v)) out[p.key] = v;
+    else if (p.kind === "tog" && typeof v === "boolean") out[p.key] = v;
+  }
+  return out;
+}
+export const typeDims = (t, opts) => (t.params ? t.size(cleanOpts(t, opts)) : { w: t.w, d: t.d, h: t.h, top: t.top });
+const regCustom = (key, name, params, size, build) => {
+  const defaults = Object.fromEntries(params.map((p) => [p.key, p.def]));
+  TYPES[key] = { key, name, params, size, build, custom: true, ...size(defaults) };
+};
 // w, d = footprint in studs, h = height in brick layers, top = can other pieces stack on it?
 
 // Plain bricks
@@ -802,14 +826,58 @@ reg("bookshelf", "Bookshelf", 3, 1, 3, true, (c) => {
   });
   return g;
 });
-reg("bed", "Bed 3×5", 3, 5, 2, false, (c) => {
+// Beds in several sizes (head at the back, foot toward +z). The blanket takes your chosen color.
+const bedBuilder = (w, d, o = {}) => (c) => {
   const g = new THREE.Group();
-  B(g, 2.9, 0.5, 4.9, wood, 1.5, 0.45, 2.5);
-  B(g, 2.7, 0.35, 4.5, white, 1.5, 0.88, 2.55); // mattress
-  B(g, 2.72, 0.15, 3.1, mat(c), 1.5, 1.1, 3.3); // blanket
-  [0.85, 2.15].forEach((x) => B(g, 1.1, 0.2, 0.7, white, x, 1.15, 0.7)); // pillows
-  B(g, 2.9, 1.3, 0.15, wood, 1.5, 1.0, 0.1); // headboard
-  B(g, 2.9, 0.6, 0.12, wood, 1.5, 0.75, 4.9); // footboard
+  const hb = o.low ? 0.9 : 1.3; // headboard height
+  B(g, w - 0.1, 0.5, d - 0.1, wood, w / 2, 0.45, d / 2); // frame
+  B(g, w - 0.3, 0.35, d - 0.5, white, w / 2, 0.88, d / 2 + 0.05); // mattress
+  const bl = (d - 0.5) * 0.68;
+  B(g, w - 0.28, 0.15, bl, mat(c), w / 2, 1.1, d - 0.2 - bl / 2); // blanket
+  const n = Math.max(1, Math.round((w - 0.4) / 1.1));
+  const slot = (w - 0.5) / n;
+  for (let i = 0; i < n; i++) B(g, slot - 0.15, 0.2, 0.7, white, 0.25 + slot * (i + 0.5), 1.15, 0.7); // pillows
+  B(g, w - 0.1, hb, 0.15, wood, w / 2, 0.35 + hb / 2, 0.1);
+  if (o.padded) B(g, w - 0.5, 0.7, 0.1, mat(shade(c, 0.85)), w / 2, 1.25, 0.22);
+  B(g, w - 0.1, o.low ? 0.4 : 0.6, 0.12, wood, w / 2, o.low ? 0.65 : 0.75, d - 0.1); // footboard
+  if (o.rail) {
+    B(g, 0.06, 0.08, d - 0.7, wood, 0.08, 1.4, d / 2 + 0.1); // safety rail on one side
+    for (let z = 0.9; z < d - 0.6; z += 0.5) B(g, 0.04, 0.5, 0.04, wood, 0.08, 1.15, z);
+  }
+  return g;
+};
+reg("bedsingle", "Single bed 2×4", 2, 4, 2, false, bedBuilder(2, 4));
+reg("bedkids", "Kids bed 2×3", 2, 3, 2, false, bedBuilder(2, 3, { low: true, rail: true }));
+reg("bed", "Bed 3×5", 3, 5, 2, false, bedBuilder(3, 5));
+reg("beddouble", "Double bed 4×5", 4, 5, 2, false, bedBuilder(4, 5));
+reg("bedking", "King bed 5×6", 5, 6, 2, false, bedBuilder(5, 6, { padded: true }));
+reg("bunk", "Bunk bed 2×5", 2, 5, 3, false, (c) => {
+  const g = new THREE.Group();
+  const blanket = mat(c);
+  [0.1, 1.9].forEach((x) => [0.1, 3.9].forEach((z) => B(g, 0.12, 3.2, 0.12, wood, x, 1.6, z))); // posts
+  [[0.45, 0.75], [2.1, 2.4]].forEach(([fy, my]) => {
+    B(g, 1.9, 0.3, 3.9, wood, 1, fy, 2);
+    B(g, 1.7, 0.3, 3.5, white, 1, my, 2);
+    B(g, 1.72, 0.12, 2.2, blanket, 1, my + 0.2, 2.8);
+  });
+  [0.7, 1.3].forEach((x) => B(g, 0.5, 0.18, 0.5, white, x, 2.65, 0.6)); // top pillows
+  [0.9, 1.5].forEach((x) => B(g, 0.5, 0.18, 0.5, white, x, 1.0, 0.6)); // bottom pillow
+  [0.1, 1.9].forEach((x) => B(g, 0.06, 0.5, 3.7, wood, x, 2.85, 2)); // top guard rails
+  [0.55, 1.35].forEach((x) => tube(g, [x, 0, 4.4], [x, 2.7, 4.4], 0.04, wood)); // ladder
+  for (let y = 0.4; y < 2.6; y += 0.4) B(g, 0.8, 0.05, 0.06, wood, 0.95, y, 4.4);
+  return g;
+});
+reg("crib", "Baby crib 2×3", 2, 3, 2, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 1.9, 0.12, 2.9, wood, 1, 0.5, 1.5);
+  B(g, 1.7, 0.2, 2.6, white, 1, 0.66, 1.5);
+  B(g, 1.7, 0.1, 1.2, mat(c), 1, 0.82, 2.2);
+  [0.08, 1.92].forEach((x) => {
+    for (let z = 0.2; z < 2.95; z += 0.25) B(g, 0.04, 0.9, 0.04, wood, x, 1.1, z);
+    B(g, 0.06, 0.06, 2.9, wood, x, 1.55, 1.5);
+  });
+  [0.08, 2.92].forEach((z) => B(g, 1.9, 1.1, 0.08, wood, 1, 1.05, z));
+  [[0.1, 0.1], [1.9, 0.1], [0.1, 2.9], [1.9, 2.9]].forEach(([x, z]) => B(g, 0.12, 0.6, 0.12, wood, x, 0.3, z));
   return g;
 });
 reg("floorlamp", "Floor lamp", 1, 1, 3, false, (c) => {
@@ -2113,6 +2181,148 @@ reg("flag", "Flag", 1, 1, 3, false, (c) => {
   return g;
 });
 
+/* ---------- customizable roofs: pick the size and style in the app ---------- */
+const GROUT = mat("#CFCFD4");
+// Tile rows for any slope. Tiles get bigger on big roofs so the part count stays reasonable.
+function tileRowsG(g, len, ang, L, c, z0, dz) {
+  const tw = Math.max(0.5, len / 14);
+  const n = Math.max(1, Math.round(L / (0.55 * (tw / 0.5))));
+  const step = L / n;
+  for (let i = 0; i < n; i++) {
+    const s = (i + 0.5) * step;
+    const y = s * Math.sin(ang) + 0.03 * Math.cos(ang);
+    const z = z0 + dz * s * Math.cos(ang) - dz * 0.03 * Math.sin(ang);
+    for (let j = -1; j * tw < len; j++) {
+      const cx = tw / 2 + j * tw + (i % 2 ? tw / 2 : 0);
+      const a = Math.max(0, cx - tw / 2);
+      const b = Math.min(len, cx + tw / 2);
+      if (b - a < tw * 0.15) continue;
+      B(g, b - a - 0.03, 0.05, step * 1.08, mat(shade(c, [1, 0.93, 1.06][(i + j + 3) % 3])), (a + b) / 2, y, z).rotation.x = -dz * ang;
+    }
+  }
+}
+const scatter = (g, w, d, y, colors, count) => {
+  for (let i = 0; i < count; i++)
+    B(g, 0.5, 0.03, 0.4, mat(colors[i % colors.length]), 0.3 + rnd(i + 7) * (w - 0.6), y, 0.3 + rnd(i + 57) * (d - 0.6)).rotation.y = rnd(i + 16) * 3;
+};
+const railRun = (g, ax, az, bx, bz, y0, m) => {
+  const n = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az)));
+  for (let i = 0; i <= n; i++) B(g, 0.08, 0.95, 0.08, m, ax + ((bx - ax) * i) / n, y0 + 0.475, az + ((bz - az) * i) / n);
+  tube(g, [ax, y0 + 0.95, az], [bx, y0 + 0.95, bz], 0.04, m);
+  tube(g, [ax, y0 + 0.55, az], [bx, y0 + 0.55, bz], 0.03, m);
+};
+const flatRoof = (c, o) => {
+  const { w, d, t, surface, edge, skylight } = o;
+  const g = new THREE.Group();
+  const th = t * BH;
+  const trim = mat(shade(c, 0.75));
+  if (surface === "glass") {
+    // a glass roof: panel in a frame with bars every stud
+    B(g, w - 0.04, 0.04, d - 0.04, glass(), w / 2, th - 0.02, d / 2);
+    [0.05, d - 0.05].forEach((z) => B(g, w - 0.04, th, 0.1, trim, w / 2, th / 2, z));
+    [0.05, w - 0.05].forEach((x) => B(g, 0.1, th, d - 0.04, trim, x, th / 2, d / 2));
+    for (let i = 1; i < w; i++) B(g, 0.06, th * 0.8, d - 0.04, trim, i, th * 0.4, d / 2);
+    for (let i = 1; i < d; i++) B(g, w - 0.04, th * 0.8, 0.06, trim, w / 2, th * 0.4, i);
+  } else {
+    const base = { gravel: "#9A9690", grass: "#4C9F4A", metal: "#8F98A3" }[surface] || c;
+    B(g, w - 0.04, th, d - 0.04, mat(base, surface === "metal" ? { metalness: 0.6, roughness: 0.4 } : {}), w / 2, th / 2, d / 2);
+    if (surface === "tiles") {
+      for (let i = 1; i < w; i++) B(g, 0.04, 0.02, d - 0.04, GROUT, i, th + 0.01, d / 2);
+      for (let i = 1; i < d; i++) B(g, w - 0.04, 0.02, 0.04, GROUT, w / 2, th + 0.01, i);
+    }
+    if (surface === "metal") {
+      const sp = Math.max(0.4, w / 40);
+      for (let x = sp / 2, k = 0; x < w; x += sp, k++) B(g, 0.12, 0.05, d - 0.08, mat(k % 2 ? "#AEB6BF" : "#9AA3AD", { metalness: 0.6, roughness: 0.35 }), x, th + 0.025, d / 2);
+    }
+    if (surface === "gravel") scatter(g, w, d, th + 0.015, ["#8A8680", "#ABA69E", "#77736D"], Math.min(60, Math.round(w * d)));
+    if (surface === "grass") scatter(g, w, d, th + 0.015, ["#3F8F3F", "#5DB25A"], Math.min(60, Math.round(w * d * 0.6)));
+  }
+  if (edge === "parapet") {
+    [0.1, d - 0.1].forEach((z) => B(g, w - 0.04, 0.5, 0.2, trim, w / 2, th + 0.25, z));
+    [0.1, w - 0.1].forEach((x) => B(g, 0.2, 0.5, d - 0.4, trim, x, th + 0.25, d / 2));
+  }
+  if (edge === "rail") {
+    const m = mat(c);
+    railRun(g, 0.1, 0.1, w - 0.1, 0.1, th, m);
+    railRun(g, w - 0.1, 0.1, w - 0.1, d - 0.1, th, m);
+    railRun(g, w - 0.1, d - 0.1, 0.1, d - 0.1, th, m);
+    railRun(g, 0.1, d - 0.1, 0.1, 0.1, th, m);
+  }
+  if (skylight && surface !== "glass") {
+    const sw = Math.min(2.4, Math.max(0.8, w * 0.4));
+    const sd = Math.min(2.4, Math.max(0.8, d * 0.4));
+    B(g, sw, 0.3, sd, steel, w / 2, th + 0.15, d / 2);
+    B(g, sw - 0.2, 0.05, sd - 0.2, glass(), w / 2, th + 0.32, d / 2);
+  }
+  return g;
+};
+regCustom(
+  "flatroof",
+  "Flat roof (custom)",
+  [
+    { key: "w", label: "Width", kind: "num", min: 2, max: 16, step: 1, def: 6 },
+    { key: "d", label: "Length", kind: "num", min: 2, max: 16, step: 1, def: 6 },
+    { key: "t", label: "Thickness", kind: "num", min: 0.25, max: 1, step: 0.25, def: 0.5 },
+    { key: "surface", label: "Surface", kind: "sel", def: "plain", options: [["plain", "Plain"], ["gravel", "Gravel"], ["tiles", "Tiles"], ["metal", "Metal"], ["glass", "Glass"], ["grass", "Green roof"]] },
+    { key: "edge", label: "Edge", kind: "sel", def: "parapet", options: [["none", "None"], ["parapet", "Parapet"], ["rail", "Rail"]] },
+    { key: "skylight", label: "Skylight", kind: "tog", def: false },
+  ],
+  (o) => ({ w: o.w, d: o.d, h: o.t, top: true }),
+  flatRoof
+);
+
+const triRoof = (c, o) => {
+  const { len, span, pitch, surface, shape, cap } = o;
+  const g = new THREE.Group();
+  const H = pitch * BH;
+  const lean = shape === "lean";
+  const slopes = lean ? [{ z0: 0, dz: 1, run: span }] : [{ z0: 0, dz: 1, run: span / 2 }, { z0: span, dz: -1, run: span / 2 }];
+  const pts = lean ? [[0, 0], [span, 0], [span, H]] : [[0, 0], [span, 0], [span / 2, H]];
+  const key = `tri${span}_${H}_${lean ? "l" : "g"}`;
+  const m = mat(c);
+  if (surface !== "glass") add(g, prismGeo(key, pts, len), mat(shade(c, surface === "plain" ? 0.9 : 0.55)), len, 0, 0).rotation.y = -Math.PI / 2;
+  slopes.forEach(({ z0, dz, run }) => {
+    const ang = Math.atan2(H, run);
+    const L = Math.hypot(run, H);
+    const zm = z0 + dz * (run / 2);
+    if (surface === "tiles") tileRowsG(g, len, ang, L, c, z0, dz);
+    if (surface === "metal") {
+      const sp = Math.max(0.4, len / 30);
+      for (let x = sp / 2, k = 0; x < len; x += sp, k++)
+        B(g, 0.12, 0.07, L, mat(k % 2 ? "#AEB6BF" : "#9AA3AD", { metalness: 0.6, roughness: 0.35 }), x, H / 2 + 0.04 * Math.cos(ang), zm - dz * 0.04 * Math.sin(ang)).rotation.x = -dz * ang;
+    }
+    if (surface === "glass") {
+      slope(g, len - 0.06, L, glass(), len / 2, H / 2, zm, -dz * ang);
+      const gap = Math.max(1, len / 16);
+      for (let x = 0.03; x < len - 0.03; x += gap) slope(g, 0.06, L, m, x, H / 2 + 0.03, zm, -dz * ang, 0.07);
+      slope(g, 0.06, L, m, len - 0.03, H / 2 + 0.03, zm, -dz * ang, 0.07);
+      B(g, len, 0.08, 0.08, m, len / 2, 0.04, z0 === 0 ? 0.04 : span - 0.04); // eave beam
+    }
+  });
+  const ridgeZ = lean ? span : span / 2;
+  if (surface === "glass") {
+    B(g, len, 0.1, 0.1, m, len / 2, H, ridgeZ);
+    [0.03, len].forEach((x) => (add(g, prismGeo(key + "e", pts, 0.03), glass(), x, 0, 0).rotation.y = -Math.PI / 2));
+  } else if (cap) {
+    Cyl(g, 0.13, 0.13, len, mat(shade(c, 0.8)), len / 2, H + 0.02, ridgeZ).rotation.z = Math.PI / 2;
+  }
+  return g;
+};
+regCustom(
+  "triroof",
+  "Triangle roof (custom)",
+  [
+    { key: "len", label: "Length (ridge)", kind: "num", min: 1, max: 16, step: 1, def: 4 },
+    { key: "span", label: "Span (width)", kind: "num", min: 2, max: 12, step: 1, def: 4 },
+    { key: "pitch", label: "Ridge height", kind: "num", min: 0.5, max: 4, step: 0.5, def: 1.5 },
+    { key: "surface", label: "Surface", kind: "sel", def: "tiles", options: [["plain", "Plain"], ["tiles", "Tiles"], ["metal", "Metal"], ["glass", "Glass"]] },
+    { key: "shape", label: "Shape", kind: "sel", def: "gable", options: [["gable", "Two slopes"], ["lean", "One slope"]] },
+    { key: "cap", label: "Ridge cap", kind: "tog", def: true },
+  ],
+  (o) => ({ w: o.len, d: o.span, h: o.pitch, top: false }),
+  triRoof
+);
+
 /* How the picker groups pieces */
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
@@ -2121,6 +2331,7 @@ export const GROUPS = [
   { title: "Round bricks", keys: ["round1", "round2", "round3", "round4"] },
   { title: "Building parts", keys: ["window", "windowopen", "door", "dooropen"] },
   { title: "Stairs and ladders", keys: ["stairs4", "stairs4r", "stairs8", "doorstep", "step2", "stepstool", "ladder2", "ladder4", "ladderlean"] },
+  { title: "Custom roofs", keys: ["flatroof", "triroof"] },
   { title: "Roofs", keys: ["roof2", "roof4", "gable2", "gable4", "hip2", "hip4", "spire", "dome", "rooftile2", "rooftile4", "tilegable2", "tilegable4", "glassroof2", "glassroof4", "glassgable2", "glassgable4", "glassflat2", "glassflat4", "roofcornerout2", "roofcornerout4", "roofcornerin2", "roofcornerin4", "barrel2", "barrel4", "metalroof4"] },
   { title: "Wooden logs", keys: ["log2", "log4", "logpile", "firewood", "stump"] },
   { title: "Trees", keys: ["pine", "oak", "palm"] },
@@ -2141,7 +2352,8 @@ export const GROUPS = [
   { title: "Two-wheelers", keys: ["bicycle", "kick", "scooter", "motorbike"] },
   { title: "Railway", keys: ["track2", "track4", "curve", "loco", "coach", "wagon"] },
   { title: "Water and boats", keys: ["pond", "river", "lake", "sea", "pool6", "pool8", "motorboat", "sailboat", "ship"] },
-  { title: "Furniture", keys: ["stool", "chair", "armchair", "sofa", "table2", "table4", "dresser", "wardrobe", "bookshelf", "bed", "floorlamp"] },
+  { title: "Furniture", keys: ["stool", "chair", "armchair", "sofa", "table2", "table4", "dresser", "wardrobe", "bookshelf", "floorlamp"] },
+  { title: "Beds", keys: ["crib", "bedkids", "bedsingle", "bed", "beddouble", "bedking", "bunk"] },
   { title: "Bathroom", keys: ["toilet", "bathtub", "shower", "basin", "towels", "mirror"] },
   { title: "Home", keys: ["bulb", "tv", "fridge", "washer", "ac", "acout"] },
   { title: "Kitchen", keys: ["oven", "gasstove", "gascyl", "sink", "pan", "cookpot", "kettle", "utensils"] },
@@ -2150,13 +2362,15 @@ export const GROUPS = [
 /* ---------- placement ---------- */
 /* Rotate a piece 90 degrees at a time; the footprint swaps on odd turns and
    the result's origin stays at the min corner of the rotated footprint. */
-export function buildPiece(type, color, id, rot = 0, ghostMat = null) {
-  const inner = type.build(color);
-  inner.position.set(-type.w / 2, 0, -type.d / 2);
+export function buildPiece(type, color, id, rot = 0, ghostMat = null, opts = null) {
+  const o = type.params ? cleanOpts(type, opts) : null;
+  const dm = typeDims(type, o);
+  const inner = type.build(color, o);
+  inner.position.set(-dm.w / 2, 0, -dm.d / 2);
   const pivot = new THREE.Group();
   pivot.add(inner);
   pivot.rotation.y = (rot * Math.PI) / 2;
-  const [w, d] = rot % 2 ? [type.d, type.w] : [type.w, type.d];
+  const [w, d] = rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
   pivot.position.set(w / 2, 0, d / 2);
   const out = new THREE.Group();
   out.add(pivot);
