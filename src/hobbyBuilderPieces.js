@@ -60,10 +60,21 @@ export function cleanOpts(t, raw) {
   }
   return out;
 }
-export const typeDims = (t, opts) => (t.params ? t.size(cleanOpts(t, opts)) : { w: t.w, d: t.d, h: t.h, top: t.top });
-const regCustom = (key, name, params, size, build) => {
+/* Size before any stretching, then with a stretch (dim = { w, d, h }) applied to any piece. */
+const baseDims = (t, opts) => (t.params ? t.size(cleanOpts(t, opts)) : { w: t.w, d: t.d, h: t.h, top: t.top });
+export const typeDims = (t, opts, dim) => {
+  const base = baseDims(t, opts);
+  return dim ? { ...base, w: dim.w, d: dim.d, h: dim.h } : base;
+};
+// A stretched size: whole studs from 1 to 16, height in quarter bricks from 1/4 to 8. Returns null if not valid.
+export function cleanDim(raw) {
+  if (!raw || typeof raw !== "object" || ![raw.w, raw.d, raw.h].every(Number.isFinite)) return null;
+  const q = (v, lo, hi, step) => Math.min(hi, Math.max(lo, Math.round(v / step) * step));
+  return { w: q(raw.w, 1, 16, 1), d: q(raw.d, 1, 16, 1), h: q(raw.h, 0.25, 8, 0.25) };
+}
+const regCustom = (key, name, params, size, build, light = null) => {
   const defaults = Object.fromEntries(params.map((p) => [p.key, p.def]));
-  TYPES[key] = { key, name, params, size, build, custom: true, ...size(defaults) };
+  TYPES[key] = { key, name, params, size, build, light, custom: true, ...size(defaults) };
 };
 // w, d = footprint in studs, h = height in brick layers, top = can other pieces stack on it?
 
@@ -2323,13 +2334,305 @@ regCustom(
   triRoof
 );
 
+/* ---------- sliding door, curtain window, glass table, lights and custom tiles ---------- */
+regCustom(
+  "slidingdoor",
+  "Sliding door (custom)",
+  [
+    { key: "w", label: "Width", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+    { key: "tall", label: "Height", kind: "num", min: 2, max: 5, step: 1, def: 3 },
+    { key: "open", label: "Open (%)", kind: "num", min: 0, max: 100, step: 25, def: 50 },
+    { key: "panel", label: "Panels", kind: "sel", def: "glass", options: [["glass", "Glass"], ["wood", "Wood"]] },
+  ],
+  (o) => ({ w: o.w, d: 1, h: o.tall, top: true }),
+  (c, o) => {
+    const g = new THREE.Group();
+    const { w } = o;
+    const H = o.tall * BH;
+    const frame = mat(shade(c, 0.55));
+    const pm = mat(c);
+    [0.075, w - 0.075].forEach((x) => B(g, 0.15, H, 0.5, frame, x, H / 2, 0.5)); // jambs
+    B(g, w - 0.04, 0.2, 0.5, frame, w / 2, H - 0.1, 0.5); // top track
+    B(g, w - 0.04, 0.08, 0.5, frame, w / 2, 0.04, 0.5); // floor track
+    const pw = (w - 0.3) / 2 + 0.12; // the two panels overlap a little
+    const ph = H - 0.35;
+    const py = 0.1 + ph / 2;
+    const panel = (x0, z, handleRight) => {
+      const cx = x0 + pw / 2;
+      [0.14, 0.1 + ph - 0.04].forEach((y) => B(g, pw, 0.08, 0.06, pm, cx, y, z));
+      [x0 + 0.04, x0 + pw - 0.04].forEach((x) => B(g, 0.08, ph, 0.06, pm, x, py, z));
+      if (o.panel === "glass") B(g, pw - 0.16, ph - 0.16, 0.03, glass(), cx, py, z);
+      else B(g, pw - 0.16, ph - 0.16, 0.04, mat(shade(c, 1.12)), cx, py, z);
+      B(g, 0.04, 0.5, 0.08, steel, handleRight ? x0 + pw - 0.12 : x0 + 0.12, py, z);
+    };
+    const closedX = w - 0.15 - pw;
+    panel(0.15, 0.35, true); // fixed panel
+    panel(closedX - (o.open / 100) * (closedX - 0.15), 0.62, false); // sliding panel
+    return g;
+  }
+);
+regCustom(
+  "windowcurtain",
+  "Window with curtain (custom)",
+  [
+    { key: "w", label: "Width", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+    { key: "tall", label: "Height", kind: "num", min: 2, max: 5, step: 1, def: 3 },
+    { key: "curtain", label: "Curtain", kind: "sel", def: "open", options: [["open", "Open"], ["half", "Half"], ["closed", "Closed"]] },
+  ],
+  (o) => ({ w: o.w, d: 1, h: o.tall, top: true }),
+  (c, o) => {
+    const g = new THREE.Group();
+    const { w } = o;
+    const H = o.tall * BH;
+    const fr = mat("#F4F4F4");
+    [0.125, w - 0.125].forEach((x) => B(g, 0.25, H, 0.96, fr, x, H / 2, 0.5));
+    B(g, w, 0.3, 0.96, fr, w / 2, 0.15, 0.5);
+    B(g, w, 0.3, 0.96, fr, w / 2, H - 0.15, 0.5);
+    B(g, w - 0.5, H - 0.6, 0.04, glass(), w / 2, H / 2, 0.5);
+    B(g, 0.06, H - 0.6, 0.08, fr, w / 2, H / 2, 0.5);
+    studs(g, w, 1, H, fr);
+    const hang = H - 0.85; // curtain length, from under the rod to just above the sill
+    const yc = 0.45 + hang / 2;
+    tube(g, [0.1, H - 0.35, 0.9], [w - 0.1, H - 0.35, 0.9], 0.03, steel);
+    [0.1, w - 0.1].forEach((x) => Sph(g, 0.06, steel, x, H - 0.35, 0.9));
+    const drape = (xa, xb) => {
+      const n = Math.max(2, Math.round((xb - xa) / 0.13));
+      for (let i = 0; i < n; i++)
+        B(g, (xb - xa) / n - 0.01, hang, 0.06 + 0.04 * (i % 2), mat(shade(c, [1, 0.88, 1.1][i % 3])), xa + ((i + 0.5) * (xb - xa)) / n, yc, 0.88 + 0.02 * (i % 2));
+    };
+    const span = w - 0.5;
+    const cw = { open: 0.7, half: span * 0.3, closed: span / 2 }[o.curtain];
+    drape(0.25, 0.25 + cw);
+    drape(w - 0.25 - cw, w - 0.25);
+    return g;
+  }
+);
+regCustom(
+  "glasstable",
+  "Glass table (custom)",
+  [
+    { key: "w", label: "Width", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+    { key: "d", label: "Length", kind: "num", min: 2, max: 8, step: 1, def: 3 },
+    { key: "shape", label: "Shape", kind: "sel", def: "rect", options: [["rect", "Rectangle"], ["round", "Round / oval"]] },
+    { key: "legs", label: "Legs", kind: "sel", def: "steel", options: [["steel", "Steel"], ["wood", "Wood"]] },
+    { key: "shelf", label: "Lower shelf", kind: "tog", def: false },
+  ],
+  (o) => ({ w: o.w, d: o.d, h: 1, top: true }),
+  (c, o) => {
+    const g = new THREE.Group();
+    const { w, d } = o;
+    if (o.shape === "round") {
+      add(g, G(THREE.CylinderGeometry, 1, 1, 0.06, 40), glass(), w / 2, 1.17, d / 2).scale.set(w / 2 - 0.04, 1, d / 2 - 0.04);
+      const rim = add(g, G(THREE.TorusGeometry, 1, 0.02, 6, 40), steel, w / 2, 1.17, d / 2);
+      rim.scale.set(w / 2 - 0.04, d / 2 - 0.04, 1);
+      rim.rotation.x = Math.PI / 2;
+    } else {
+      B(g, w - 0.04, 0.06, d - 0.04, glass(), w / 2, 1.17, d / 2);
+      [0.03, d - 0.03].forEach((z) => B(g, w - 0.04, 0.04, 0.04, steel, w / 2, 1.17, z));
+      [0.03, w - 0.03].forEach((x) => B(g, 0.04, 0.04, d - 0.04, steel, x, 1.17, d / 2));
+    }
+    const ix = o.shape === "round" ? w * 0.22 : w / 2 - 0.3;
+    const iz = o.shape === "round" ? d * 0.22 : d / 2 - 0.3;
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => {
+      const x = w / 2 + sx * ix;
+      const z = d / 2 + sz * iz;
+      if (o.legs === "steel") tube(g, [x, 0, z], [x, 1.14, z], 0.04, steel);
+      else B(g, 0.14, 1.14, 0.14, mat("#A8743C"), x, 0.57, z);
+    });
+    if (o.shelf) B(g, w - 0.8, 0.04, d - 0.8, glass(), w / 2, 0.5, d / 2);
+    return g;
+  }
+);
+
+/* ----- lights: each has Brightness and Light color settings, and the app adds a real light for it ----- */
+const TONES = { warm: "#FFD9A0", white: "#FFFFFF", cool: "#BFD8FF" };
+const toneOf = (o, c) => (o.tone === "color" ? c : TONES[o.tone]);
+const glowMat = (o, c) => {
+  const col = toneOf(o, c);
+  return mat(col, { emissive: col, emissiveIntensity: o.intensity / 50, transparent: true, opacity: 0.92, roughness: 0.3 });
+};
+const lightParams = [
+  { key: "intensity", label: "Brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 80 },
+  { key: "tone", label: "Light color", kind: "sel", def: "warm", options: [["warm", "Warm"], ["white", "White"], ["cool", "Cool"], ["color", "Chosen color"]] },
+];
+// the light a piece gives off: position (and aim) relative to the middle of its base
+const pointLight = (y, dist, x = 0, z = 0) => (o, c) => ({ kind: "point", pos: [x, y, z], power: o.intensity / 100, color: toneOf(o, c), dist: typeof dist === "function" ? dist(o) : dist });
+const spotLight = (pos, dir, angle, dist) => (o, c) => ({ kind: "spot", pos, dir, angle, power: o.intensity / 100, color: toneOf(o, c), dist });
+const hangParam = { key: "tall", label: "Height", kind: "num", min: 1, max: 6, step: 1, def: 2 };
+
+regCustom("tablelamp", "Table lamp", lightParams, () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.22, 0.26, 0.08, mat("#5A3A1E"), 0.5, 0.04, 0.5);
+  Cyl(g, 0.04, 0.04, 0.45, steel, 0.5, 0.3, 0.5);
+  Cyl(g, 0.3, 0.4, 0.5, glowMat(o, c), 0.5, 0.78, 0.5);
+  return g;
+}, pointLight(0.8, 9));
+regCustom("hanglamp", "Hanging lamp", [hangParam, ...lightParams], (o) => ({ w: 1, d: 1, h: o.tall, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  B(g, 0.5, 0.08, 0.5, steel, 0.5, H - 0.04, 0.5); // ceiling plate
+  tube(g, [0.5, H - 0.08, 0.5], [0.5, 0.78, 0.5], 0.02, black);
+  Cyl(g, 0.12, 0.38, 0.3, mat(c), 0.5, 0.7, 0.5);
+  Sph(g, 0.14, glowMat(o, c), 0.5, 0.52, 0.5);
+  return g;
+}, pointLight(0.5, 10));
+regCustom("spotlight", "Spotlight", lightParams, () => ({ w: 1, d: 1, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  [[0.2, 0.2], [0.8, 0.2], [0.5, 0.85]].forEach(([x, z]) => tube(g, [x, 0, z], [0.5, 1.5, 0.5], 0.03, steel));
+  const head = Cyl(g, 0.26, 0.2, 0.5, mat(c), 0.5, 1.65, 0.55);
+  head.rotation.x = 2.09;
+  const lens = Cyl(g, 0.22, 0.22, 0.04, glowMat(o, c), 0.5, 1.52, 0.78);
+  lens.rotation.x = 2.09;
+  return g;
+}, spotLight([0, 1.55, 0.3], [0, -0.9, 1.6], 0.55, 14));
+regCustom("walllight", "Wall light", lightParams, () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, 0.5, 0.6, 0.06, steel, 0.5, 0.65, 0.1); // mounts on a wall behind it
+  tube(g, [0.5, 0.7, 0.1], [0.5, 0.7, 0.4], 0.03, steel);
+  Cyl(g, 0.22, 0.14, 0.3, mat(c), 0.5, 0.7, 0.45);
+  Sph(g, 0.11, glowMat(o, c), 0.5, 0.65, 0.45);
+  return g;
+}, pointLight(0.65, 8, 0, 0.2));
+regCustom("chandelier", "Chandelier", [hangParam, ...lightParams], (o) => ({ w: 2, d: 2, h: o.tall, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const yb = Math.max(0.7, H - 0.9);
+  const glow = glowMat(o, c);
+  B(g, 0.6, 0.08, 0.6, steel, 1, H - 0.04, 1);
+  tube(g, [1, H - 0.08, 1], [1, yb + 0.12, 1], 0.02, black);
+  Sph(g, 0.12, brass, 1, yb, 1);
+  add(g, G(THREE.TorusGeometry, 0.6, 0.02, 6, 24), brass, 1, yb - 0.1, 1).rotation.x = Math.PI / 2;
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    const x = 1 + 0.6 * Math.cos(a);
+    const z = 1 + 0.6 * Math.sin(a);
+    tube(g, [1, yb, 1], [x, yb - 0.1, z], 0.02, brass);
+    Cyl(g, 0.04, 0.04, 0.25, white, x, yb + 0.03, z);
+    Sph(g, 0.06, glow, x, yb + 0.2, z);
+  }
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, Math.max(0.7, o.tall * BH - 0.9) + 0.1, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 13 }));
+regCustom("streetlight", "Street light", lightParams, () => ({ w: 1, d: 1, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.2, ironM, 0.5, 0.1, 0.5);
+  Cyl(g, 0.06, 0.1, 4.5, ironM, 0.5, 2.25, 0.5);
+  tube(g, [0.5, 4.45, 0.5], [0.8, 4.55, 0.5], 0.04, ironM);
+  B(g, 0.3, 0.1, 0.25, ironM, 0.8, 4.55, 0.5);
+  B(g, 0.26, 0.03, 0.2, glowMat(o, c), 0.8, 4.48, 0.5);
+  return g;
+}, spotLight([0.3, 4.4, 0], [0, -1, 0], 1.0, 14));
+regCustom("lantern", "Lantern", lightParams, () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, 0.5, 0.06, 0.5, ironM, 0.5, 0.03, 0.5);
+  [[0.27, 0.27], [0.73, 0.27], [0.27, 0.73], [0.73, 0.73]].forEach(([x, z]) => B(g, 0.05, 0.6, 0.05, ironM, x, 0.36, z));
+  B(g, 0.34, 0.5, 0.34, glowMat(o, c), 0.5, 0.36, 0.5);
+  Cone(g, 0.34, 0.2, 4, ironM, 0.5, 0.76, 0.5).rotation.y = Math.PI / 4;
+  add(g, G(THREE.TorusGeometry, 0.14, 0.015, 6, 12, Math.PI), ironM, 0.5, 0.84, 0.5);
+  return g;
+}, pointLight(0.4, 7));
+regCustom("ledstrip", "LED light bar", [{ key: "len", label: "Length", kind: "num", min: 1, max: 8, step: 1, def: 4 }, ...lightParams], (o) => ({ w: o.len, d: 1, h: 0.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, o.len - 0.1, 0.12, 0.16, steel, o.len / 2, 0.08, 0.5);
+  B(g, o.len - 0.16, 0.04, 0.1, glowMat(o, c), o.len / 2, 0.15, 0.5);
+  return g;
+}, pointLight(0.35, (o) => 4 + o.len * 0.6));
+
+/* ----- floor and garden tiles in any size, with a choice of tile size ----- */
+const cellFit = (w, d, cell, limit = 300) => {
+  let k = cell;
+  while ((w / k) * (d / k) > limit) k += 0.5; // big areas get bigger tiles so the part count stays reasonable
+  return k;
+};
+const tileGrid = (w, d, cell, fn) => {
+  const k = cellFit(w, d, cell);
+  const nx = Math.ceil(w / k - 1e-6);
+  const nz = Math.ceil(d / k - 1e-6);
+  for (let ix = 0; ix < nx; ix++)
+    for (let iz = 0; iz < nz; iz++) {
+      const x0 = ix * k;
+      const z0 = iz * k;
+      const x1 = Math.min(w, x0 + k);
+      const z1 = Math.min(d, z0 + k);
+      fn(ix, iz, (x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0);
+    }
+};
+// rows of boards or bricks, every other row shifted half a length
+const courses = (g, w, d, len, rowH, colorFor) => {
+  for (let r = 0; r * rowH < d - 1e-6; r++) {
+    const z0 = r * rowH;
+    const z1 = Math.min(d, z0 + rowH);
+    for (let k = 0, x = r % 2 ? -len / 2 : 0; x < w; x += len, k++) {
+      const a = Math.max(0, x);
+      const b = Math.min(w, x + len);
+      if (b - a > 0.08) B(g, b - a - 0.05, 0.04, z1 - z0 - 0.05, mat(colorFor(r, k)), (a + b) / 2, 0.28, (z0 + z1) / 2);
+    }
+  }
+};
+const tileParams = (patterns) => [
+  { key: "w", label: "Width", kind: "num", min: 1, max: 16, step: 1, def: 4 },
+  { key: "d", label: "Length", kind: "num", min: 1, max: 16, step: 1, def: 4 },
+  { key: "cell", label: "Tile size", kind: "num", min: 0.5, max: 2, step: 0.5, def: 1 },
+  { key: "pattern", label: "Pattern", kind: "sel", def: patterns[0][0], options: patterns },
+];
+regCustom(
+  "floortile",
+  "Floor tile (custom)",
+  tileParams([["checker", "Checker"], ["wood", "Wood"], ["ceramic", "Ceramic"], ["stripes", "Stripes"], ["marble", "Marble"]]),
+  (o) => ({ w: o.w, d: o.d, h: 0.25, top: true }),
+  (c, o) => {
+    const { w, d, pattern } = o;
+    const g = new THREE.Group();
+    plate(g, w, d, mat({ wood: "#5A3A1E", marble: "#B9B6AE" }[pattern] || "#CFCFD4"));
+    if (pattern === "wood") {
+      const k = cellFit(w, d, o.cell, 150);
+      courses(g, w, d, 2 * k, k / 2, (r, i) => woods[Math.abs(r + i) % 3]);
+    } else
+      tileGrid(w, d, o.cell, (ix, iz, cx, cz, sx, sz) => {
+        const col =
+          pattern === "checker" ? ((ix + iz) % 2 ? "#F4F4F4" : c)
+          : pattern === "stripes" ? (iz % 2 ? shade(c, 0.55) : c)
+          : pattern === "marble" ? shade("#E8E6E1", 0.9 + rnd(ix * 13 + iz) * 0.14)
+          : c;
+        B(g, sx - 0.04, 0.04, sz - 0.04, mat(col), cx, 0.28, cz);
+      });
+    return g;
+  }
+);
+regCustom(
+  "gardentile",
+  "Garden tile (custom)",
+  tileParams([["lawn", "Lawn"], ["brick", "Brick"], ["cobble", "Cobblestone"], ["flagstone", "Flagstone"], ["gravel", "Gravel"]]),
+  (o) => ({ w: o.w, d: o.d, h: 0.25, top: true }),
+  (c, o) => {
+    const { w, d, pattern } = o;
+    const g = new THREE.Group();
+    plate(g, w, d, mat({ lawn: "#4C9F4A", brick: "#A89F91", cobble: "#6E6A63", flagstone: "#4C9F4A", gravel: "#8A8680" }[pattern]));
+    if (pattern === "lawn") scatter(g, w, d, 0.28, ["#3F8F3F", "#5DB25A"], Math.min(60, Math.round(w * d * 1.5)));
+    if (pattern === "gravel")
+      for (let i = 0; i < Math.min(120, Math.round(w * d * 3)); i++)
+        Ico(g, 0.1 + rnd(i) * 0.08, mat(stoneC[i % 3], { flatShading: true }), 0.15 + rnd(i + 3) * (w - 0.3), 0.27, 0.15 + rnd(i + 90) * (d - 0.3), 1, 0.4, 1, rnd(i + 5) * 3);
+    if (pattern === "brick") {
+      const k = cellFit(w, d, o.cell, 150);
+      courses(g, w, d, k, k / 2, (r, i) => bricks[Math.abs(r + i) % 3]);
+    }
+    if (pattern === "cobble")
+      tileGrid(w, d, o.cell, (ix, iz, cx, cz, sx, sz) =>
+        Ico(g, Math.min(sx, sz) * 0.52, mat(stoneC[(ix * 3 + iz) % 3], { flatShading: true, roughness: 0.95 }), cx + (rnd(ix * 7 + iz) - 0.5) * 0.08, 0.24, cz + (rnd(ix + iz * 5) - 0.5) * 0.08, 1, 0.25, 1, rnd(ix + iz * 11) * 3));
+    if (pattern === "flagstone")
+      tileGrid(w, d, o.cell, (ix, iz, cx, cz, sx, sz) => {
+        B(g, sx * (0.7 + rnd(ix * 9 + iz) * 0.25), 0.05, sz * (0.7 + rnd(ix + iz * 9) * 0.25), mat(stoneC[(ix + iz) % 3]), cx, 0.285, cz).rotation.y = (rnd(ix * 5 + iz * 3) - 0.5) * 0.4;
+      });
+    return g;
+  }
+);
+
 /* How the picker groups pieces */
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
   { title: "Flat tiles (thin)", keys: ["t1x2", "t2x2", "t2x4", "t4x4", "t4x8"] },
   { title: "Round bricks", keys: ["round1", "round2", "round3", "round4"] },
-  { title: "Building parts", keys: ["window", "windowopen", "door", "dooropen"] },
+  { title: "Building parts", keys: ["window", "windowopen", "windowcurtain", "door", "dooropen", "slidingdoor"] },
   { title: "Stairs and ladders", keys: ["stairs4", "stairs4r", "stairs8", "doorstep", "step2", "stepstool", "ladder2", "ladder4", "ladderlean"] },
   { title: "Custom roofs", keys: ["flatroof", "triroof"] },
   { title: "Roofs", keys: ["roof2", "roof4", "gable2", "gable4", "hip2", "hip4", "spire", "dome", "rooftile2", "rooftile4", "tilegable2", "tilegable4", "glassroof2", "glassroof4", "glassgable2", "glassgable4", "glassflat2", "glassflat4", "roofcornerout2", "roofcornerout4", "roofcornerin2", "roofcornerin4", "barrel2", "barrel4", "metalroof4"] },
@@ -2339,8 +2642,9 @@ export const GROUPS = [
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
   { title: "Fences and gates", keys: ["fence2", "fence", "panelfence", "ironfence", "meshfence", "gate2", "gate4", "gateopen"] },
   { title: "Roof rails", keys: ["roofrail2", "roofrail4", "railcorner", "glassrail"] },
-  { title: "Floor tiles", keys: ["floorc2", "floorc4", "floorw2", "floorw4", "floort2", "floort4"] },
-  { title: "Garden tiles", keys: ["lawn2", "lawn4", "gpath", "gsteps", "paver2", "paver4", "cobble2", "cobble4"] },
+  { title: "Lighting", keys: ["tablelamp", "hanglamp", "chandelier", "walllight", "spotlight", "lantern", "streetlight", "ledstrip"] },
+  { title: "Floor tiles", keys: ["floortile", "floorc2", "floorc4", "floorw2", "floorw4", "floort2", "floort4"] },
+  { title: "Garden tiles", keys: ["gardentile", "lawn2", "lawn4", "gpath", "gsteps", "paver2", "paver4", "cobble2", "cobble4"] },
   { title: "Garden things", keys: ["raisedbed", "wheelbarrow", "wateringcan", "shed", "greenhouse", "pergola", "arch", "birdbath", "scarecrow", "well"] },
   { title: "Roof logs and steel", keys: ["logbeam4", "logbeam8", "logtruss4", "logtruss6", "steel4", "steel8", "steel12", "steelpost", "steeltruss"] },
   { title: "Towers and castle", keys: ["towerround2", "towerround4", "towertop2", "towertop4", "towerroof2", "towerroof4", "castlewall", "castlegate", "flag"] },
@@ -2352,7 +2656,7 @@ export const GROUPS = [
   { title: "Two-wheelers", keys: ["bicycle", "kick", "scooter", "motorbike"] },
   { title: "Railway", keys: ["track2", "track4", "curve", "loco", "coach", "wagon"] },
   { title: "Water and boats", keys: ["pond", "river", "lake", "sea", "pool6", "pool8", "motorboat", "sailboat", "ship"] },
-  { title: "Furniture", keys: ["stool", "chair", "armchair", "sofa", "table2", "table4", "dresser", "wardrobe", "bookshelf", "floorlamp"] },
+  { title: "Furniture", keys: ["stool", "chair", "armchair", "sofa", "table2", "table4", "glasstable", "dresser", "wardrobe", "bookshelf", "floorlamp"] },
   { title: "Beds", keys: ["crib", "bedkids", "bedsingle", "bed", "beddouble", "bedking", "bunk"] },
   { title: "Bathroom", keys: ["toilet", "bathtub", "shower", "basin", "towels", "mirror"] },
   { title: "Home", keys: ["bulb", "tv", "fridge", "washer", "ac", "acout"] },
@@ -2362,10 +2666,12 @@ export const GROUPS = [
 /* ---------- placement ---------- */
 /* Rotate a piece 90 degrees at a time; the footprint swaps on odd turns and
    the result's origin stays at the min corner of the rotated footprint. */
-export function buildPiece(type, color, id, rot = 0, ghostMat = null, opts = null) {
+export function buildPiece(type, color, id, rot = 0, ghostMat = null, opts = null, dim = null) {
   const o = type.params ? cleanOpts(type, opts) : null;
-  const dm = typeDims(type, o);
+  const base = baseDims(type, o);
+  const dm = dim ? { ...base, w: dim.w, d: dim.d, h: dim.h } : base;
   const inner = type.build(color, o);
+  if (dim) inner.scale.set(dm.w / base.w, dm.h / base.h, dm.d / base.d); // stretch from the corner, then centre
   inner.position.set(-dm.w / 2, 0, -dm.d / 2);
   const pivot = new THREE.Group();
   pivot.add(inner);

@@ -17,7 +17,17 @@ export const MOTIONS = [
   { key: "orbit", label: "Circle", hint: "Drives in a circle", reverse: true, turn: true, amount: { label: "Radius (studs)", min: 1, max: 8, step: 1, def: 3 } },
   { key: "pulse", label: "Pulse", hint: "Grows and shrinks", amount: { label: "Size change (%)", min: 10, max: 100, step: 10, def: 30 } },
   { key: "blink", label: "Blink", hint: "Switches on and off" },
+  { key: "path", label: "Path", hint: "Follows a route you draw on the ground", path: true, turn: true },
 ];
+
+// waypoints of a drawn path: up to 12 offsets (x, y, z) in studs from where the piece was placed
+const cleanPts = (raw) =>
+  Array.isArray(raw)
+    ? raw
+        .slice(0, 12)
+        .filter((p) => Array.isArray(p) && p.length >= 3 && p.slice(0, 3).every(Number.isFinite))
+        .map((p) => p.slice(0, 3).map((v) => Math.min(40, Math.max(-40, Math.round(v * 4) / 4))))
+    : [];
 
 const snap = (v, lo, hi, step, def) =>
   Number.isFinite(v) ? Math.min(hi, Math.max(lo, +(Math.round((v - lo) / step) * step + lo).toFixed(4))) : def;
@@ -33,14 +43,35 @@ export function cleanAnim(raw) {
     delay: snap(raw.delay, 0, 8, 0.5, 0),
     amount: m.amount ? snap(raw.amount, m.amount.min, m.amount.max, m.amount.step, m.amount.def) : 0,
     axis: AXES.some(([k]) => k === raw.axis) ? raw.axis : m.defAxis || "up",
-    loop: raw.loop === "repeat" ? "repeat" : "pingpong",
+    loop: raw.loop === "repeat" || (raw.loop === "closed" && m.key === "path") ? raw.loop : "pingpong",
     reverse: m.reverse ? raw.reverse === true : false,
     turn: m.turn ? raw.turn !== false : false,
+    ...(m.path ? { pts: cleanPts(raw.pts) } : {}),
   };
 }
 export const newAnim = (type) => cleanAnim({ type });
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+// A smooth curve through the waypoints, starting from the piece's own position
+const curves = new Map();
+function pathCurve(pts, closed) {
+  const key = JSON.stringify([pts, closed]);
+  let c = curves.get(key);
+  if (!c) {
+    const v = [new THREE.Vector3(0, 0, 0), ...pts.map((p) => new THREE.Vector3(...p))];
+    const curve = new THREE.CatmullRomCurve3(v, closed, "catmullrom", 0.5);
+    c = { curve, len: curve.getLength() };
+    if (curves.size > 200) curves.clear();
+    curves.set(key, c);
+  }
+  return c;
+}
+/* Points along a drawn path (offsets from the piece), for showing the route in the scene. */
+export function pathPoints(a, samples = 80) {
+  if (!a || a.type !== "path" || !a.pts || !a.pts.length) return [];
+  return pathCurve(a.pts, a.loop === "closed").curve.getPoints(samples);
+}
 const TAU = Math.PI * 2;
 
 /* How a piece is posed at time t (seconds): an offset, a rotation, a scale, a pivot point for
@@ -83,6 +114,27 @@ export function poseAt(a, rot, heightLayers, t) {
     case "blink":
       out.visible = frac < 0.5;
       break;
+    case "path": {
+      if (!a.pts || !a.pts.length) break;
+      const { curve, len } = pathCurve(a.pts, a.loop === "closed");
+      if (len < 0.01) break;
+      const dist = Math.max(0, t - a.delay) * 2 * a.speed; // x1 is 2 studs per second
+      let u;
+      let fwd = true;
+      if (a.loop === "pingpong") {
+        const m = (dist / len) % 2;
+        fwd = m <= 1;
+        u = fwd ? m : 2 - m;
+      } else u = (dist / len) % 1;
+      u = Math.min(1, Math.max(0, u));
+      out.offset.copy(curve.getPointAt(u));
+      if (a.turn) {
+        const tg = curve.getTangentAt(u);
+        if (!fwd) tg.negate();
+        if (tg.x * tg.x + tg.z * tg.z > 1e-6) out.q.setFromAxisAngle(UP, Math.atan2(tg.x, tg.z) - ang);
+      }
+      break;
+    }
     default:
   }
   return out;

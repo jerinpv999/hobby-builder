@@ -1,4 +1,5 @@
 import { TYPES, settle, cleanOpts, typeDims } from "./hobbyBuilderPieces";
+import { cleanAnim } from "./pieceAnimations";
 
 export const MIN_N = 8;
 export const MAX_N = 64;
@@ -16,7 +17,7 @@ export function serializeStructure(N, pieces) {
       app: APP,
       version: 1,
       baseSize: N,
-      pieces: pieces.map(({ type, x, z, y, rot, color, opts }) => ({ type, x, z, y, rot, color, ...(opts ? { opts } : {}) })),
+      pieces: pieces.map(({ type, x, z, y, rot, color, opts, anim }) => ({ type, x, z, y, rot, color, ...(opts ? { opts } : {}), ...(anim ? { anim } : {}) })),
     },
     null,
     2
@@ -47,11 +48,12 @@ export function parseStructure(text) {
     if (typeof p.color !== "string" || !/^#[0-9a-f]{6}$/i.test(p.color))
       throw new Error(`Piece ${i + 1}: invalid color.`);
     const opts = t.params ? cleanOpts(t, p.opts) : null; // customizable pieces keep their settings
+    const anim = p.anim ? cleanAnim(p.anim) : null; // a piece's own motion, if it has one
     const dm = typeDims(t, opts);
     const [w, d] = p.rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
     if (p.x < 0 || p.z < 0 || p.x + w > N || p.z + d > N)
       throw new Error(`Piece ${i + 1} is outside the baseplate.`);
-    return { id: i + 1, type: t.key, rot: p.rot, x: p.x, z: p.z, y: p.y, w, d, h: dm.h, top: dm.top, color: p.color, ...(opts ? { opts } : {}) };
+    return { id: i + 1, type: t.key, rot: p.rot, x: p.x, z: p.z, y: p.y, w, d, h: dm.h, top: dm.top, color: p.color, ...(opts ? { opts } : {}), ...(anim ? { anim } : {}) };
   });
   return { N, pieces: settle(pieces) };
 }

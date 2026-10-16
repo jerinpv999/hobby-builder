@@ -8,12 +8,17 @@ A 3D brick builder that runs in the browser, made with React and Three.js. Place
 - **Around 120 pieces** in 15 groups: bricks, flat bricks and tiles, windows and doors, roofs, logs, trees, plants and stones, people, vehicles, two-wheelers, railway, water and boats, furniture, home appliances and kitchen utensils.
 - **Stacking.** Pieces stack on top of each other and drop down if what is under them is removed. Pieces that can't be built on (a roof, a tree, a car) show a red preview.
 - **Rotation** in 90° steps.
+- **Select tool.** Pick one or many pieces, then move, rotate, duplicate, delete, recolor, resize, change their settings or give them motion.
+- **Resize any piece** to a custom width, length and height, before or after placing it.
+- **Lighting.** Table, hanging, wall, spot, street and LED lights, a chandelier and a lantern, each with a brightness setting, plus a Daylight slider and night mode.
+- **Sliding door, window with curtain, glass table** and **floor and garden tiles in any size and tile size**.
 - **Customizable roofs.** A Flat roof and a Triangle roof you size and style yourself.
 - **Keyboard shortcuts** for every action, with a built-in list (press **?**).
 - **Undo and redo** for placing, removing, clearing, loading and resizing.
 - **Colors.** Eight colors for bricks, upholstery, hulls, frames and similar parts.
 - **Resizable baseplate** from 8×8 to 64×64 studs.
 - **Autosave** in the browser, plus **Save JSON / Load JSON** for files.
+- **Motion for individual pieces.** Make a car drive, a fan spin, a light blink or a boat rock, and see it in the live view, in previews and in exported videos.
 - **Walk mode and home tours.** Walk through your build in first person, save a stop in each room, and export a walkthrough video.
 - **Animation export** as a GIF or video, with build-up or finished-model reveal and an orbit, your own saved camera angles, or a home tour.
 
@@ -37,11 +42,13 @@ npm install three gifenc
 
 On Node 20.19 or newer you can use `npm create vite@latest` instead.
 
-1. Copy these four files into `src/`:
+1. Copy these six files into `src/`:
    - `HobbyBuilder.jsx`
    - `hobbyBuilderPieces.js`
    - `structureIO.js`
    - `animation.js`
+   - `pieceAnimations.js`
+   - `thumbs.js`
 2. Replace `src/App.jsx` with:
 
    ```jsx
@@ -76,6 +83,9 @@ On Node 20.19 or newer you can use `npm create vite@latest` instead.
 | `hobbyBuilderPieces.js` | The piece catalog, how each piece is drawn, stacking rules and the sidebar groups |
 | `structureIO.js` | Saving, loading, validating and autosaving a build |
 | `animation.js` | The animation timeline, camera paths, GIF encoding and video recording |
+| `pieceAnimations.js` | Motion for individual pieces: the motion types, validation and the maths for where a piece is at any moment |
+| `photo.js` | Taking photos from different camera angles and the all-angles contact sheet |
+| `thumbs.js` | The small preview pictures in the piece picker |
 
 ## Using the app
 
@@ -126,6 +136,23 @@ Press **?** or **H** (or the **Keys** button) to see this list in the app. On a 
 | Customize roofs | **{ }** / **< >** / **( )** | Width or ridge length / length or span / thickness or ridge height, smaller or larger |
 | | **Y** / **I** (+ **Shift** to go back) | Cycle the surface / cycle the edge or roof shape |
 | | **L** | Skylight or ridge cap on or off |
+| View | **5** | Fit every piece on screen |
+| | **Shift+B** | Browse every piece in one window |
+| | **Shift+M** | Objects list: every kind of piece in your build |
+| Photos | **J** / **Shift+J** | Photo of the current view / open the Photos panel |
+| Select | **S** | Select mode. Click a piece, **Shift+click** adds or removes, **Shift+drag** draws a selection box |
+| | **Ctrl+A** / **Esc** | Select everything / clear the selection |
+| | **Arrow keys** | Move the selection (**Shift** = 4 studs) |
+| | **R** / **Shift+R** | Turn the selected pieces |
+| | **Ctrl+D** / **Delete** | Duplicate / delete the selected pieces |
+| Light | **N** | Day / night |
+| Piece motion | **A** | Open the Motion tab for the selected pieces |
+| | **T** | Play / pause piece motion |
+| | **Y** / **Shift+Y** | Cycle the motion type (none, spin, move, bob, swing, circle, pulse, blink) |
+| | **I** | Cycle the direction (forward, side, up) |
+| | **{ }** / **< >** / **( )** | Speed / distance, angle or size / delay, smaller or larger |
+| | **L** | Reverse, or switch between out-and-back and jump-back |
+| | **Delete** | Remove the selected piece's motion |
 | Help | **?** or **H** | Show the shortcut list |
 
 ## Customizable roofs
@@ -138,6 +165,48 @@ Pick **Flat roof (custom)** or **Triangle roof (custom)** from the **Custom roof
 | Triangle roof | **Length** along the ridge (1 to 16) and **Span** across the slopes (2 to 12), **Ridge height** (half a brick to 4 bricks), **Surface** (plain, tiles, metal or glass), **Shape** (two slopes, or one slope for a lean-to) and a **Ridge cap** option |
 
 Things can be stacked on the Flat roof but not on the Triangle roof. Press R to turn either one. Large roofs with tiles or metal ribs have more parts, so a very big tiled roof can slow older machines.
+
+## Selecting and editing pieces
+
+Press **S** (or the **Select** button) and click a piece. A card opens over the 3D view with tabs:
+
+- **Edit:** color swatches, arrow buttons to move (1 or 4 studs per step), Rotate, Duplicate and Delete.
+- **Size:** stretch the selected pieces to a custom width, length and height (1 to 16 studs, up to 8 bricks tall). This works for every piece. Before placing, the same sliders are under **Stretch to a custom size** on the build card.
+- **Settings:** appears when one customizable piece is selected, for example a lamp's brightness, a door's opening or a roof's surface.
+- **Motion:** see below.
+
+Moves stay on the baseplate, and anything left floating drops down. Every change can be undone.
+
+## Lighting
+
+The **Lighting** group has a Table lamp, Hanging lamp, Chandelier, Wall light, Spotlight, Lantern, Street light and LED light bar. Each has **Brightness (%)** and a **Light color** (warm, white, cool or your chosen color). Brightness 0 switches the light off. The **Daylight** slider in the toolbar, or **N**, dims the scene so lamps stand out. Only the 8 brightest lamps cast real light, to keep the scene fast.
+
+## Motion for individual pieces
+
+Any piece you have placed can have its own motion.
+
+1. Press **A** (or the **Motion** button) and click a piece. An outline shows what is selected.
+2. In the **Piece motion** card, choose a motion. It starts playing straight away. Press **T** or the **Play / Pause** button to start and stop all motion.
+3. Adjust the settings. Changes show live.
+
+| Motion | What it does | Settings |
+|---|---|---|
+| Spin | Turns around, or rolls forward or sideways | Direction, speed, reverse |
+| Move | Slides along a line and comes back | Direction, distance, speed, out-and-back or jump-back |
+| Bob | Floats up and down | Height, speed |
+| Swing | Rocks back and forth about its base | Direction, angle, speed |
+| Circle | Drives in a circle, turning to face the way it travels | Radius, speed, reverse, face the way it travels |
+| Pulse | Grows and shrinks | Size change, speed |
+| Blink | Switches on and off | Speed |
+| Path | Follows a route you draw: click the ground to add points, then choose out-and-back, jump-back or a closed circuit | Points, speed, face the way it travels |
+
+- **Speed** is cycles per 4 seconds (×1 is one cycle every 4 seconds, ×4 is once a second).
+- **Delay** holds the piece still for up to 8 seconds before it starts.
+- **Direction** is relative to the piece. Forward is the way it faces, so a car turned with R still drives forward.
+- **Apply to all** gives every placed piece of the same kind the same motion, for example all the fans.
+- Each piece has one motion. Changing a slider repeatedly counts as one undo step.
+- Motion is part of the video clock, so previews, GIFs and videos show it too, and the build-up reveal brings an animated piece in before its motion starts. In the **Animate** panel, **Piece motion** can be set to Include or Leave out.
+- Motion plays only while Play is on. Paused pieces rest where you placed them, and clicking, removing and placing always work on the resting positions.
 
 ## Saving and loading
 
@@ -162,19 +231,52 @@ Your build is saved in the browser automatically after every change, so a refres
 - `x` and `z` are grid positions. `y` is the layer, in multiples of 0.25 (thin pieces such as tracks and tiles are a quarter of a brick tall).
 - `rot` is 0 to 3, in 90° steps.
 - `color` is a hex color like `#D01012`.
+- `anim` appears only on pieces with motion, for example `{ "type": "move", "axis": "forward", "amount": 6, "speed": 2, "loop": "pingpong", "delay": 1 }`. Anything invalid is fixed or dropped when the file loads.
 - `opts` appears only on customizable pieces and holds their settings. Missing or out-of-range settings are replaced with defaults or clamped when the file loads.
 
 Files saved before the project was renamed (with `"app": "lego-builder"`) still load, and an autosave stored under the old name is picked up and moved to the new one automatically.
 
 Limits: baseplate 8 to 64, up to 2000 pieces. Size, height and stacking rules come from the piece catalog when a file loads, so renaming or removing a piece type in `hobbyBuilderPieces.js` breaks saves that use it.
 
-Saved camera angles and home tour stops are not part of the JSON file.
+The animation setup is saved too, in an optional `animation` block: build-up or finished, the camera mode, your saved camera angles (up to 8), home tour stops (up to 12), the tour pace, and whether piece motion is included. Load restores it, and the autosave keeps it across refreshes. Files without the block still load.
+
+```json
+"animation": {
+  "reveal": "build", "camMode": "angles", "pieceAnims": true, "stopSecs": 3,
+  "shots": [{ "theta": 0.8, "phi": 0.95, "radius": 30 }],
+  "stops": []
+}
+```
+
+The recorded GIF or video itself is downloaded as a file when you export it.
+
+## All pieces window
+
+**All pieces** in the top bar (or **Shift+B**) opens a window with every piece in the catalog on one scrollable page, grouped like the picker, with previews in your current color. Search narrows it, and clicking a piece chooses it and returns you to building.
+
+## Objects list
+
+**Objects** in the top bar (or **Shift+M**) lists every kind of piece in your build, grouped like the picker, with a preview, its colors and how many you have. Click a row to select all pieces of that kind, then move, recolor, resize or delete them together.
+
+## Photos from different angles
+
+Press **Photos** in the top bar (or **Shift+J**) to take still pictures of your build.
+
+- Tick the angles you want: Current view, Front, Right, Back, Left, Top, Corner and Far corner. Any camera angles you saved for the animation and any home tour stops appear in the same list.
+- Choose a size: screen size, HD (2x) or Large (4x, capped at 4096 pixels on the long side).
+- Tick **Also make one picture with all the angles** to get a labelled contact sheet as well.
+- **Take photos and save** downloads one PNG per angle, named like `hobby-front.png`. Your browser may ask to allow several downloads.
+- Press **J** at any time to save the view you are looking at.
+- The **This session** strip keeps your last 24 photos. Click one to save it again.
+
+Photos leave out the placement ghost, selection outlines and motion-path lines.
 
 ## Animation and video export
 
 The **Camera and video** section of the sidebar controls the animation.
 
 - **Views:** Front, Side, Top and Iso jump the camera to a standard angle.
+- **Fit all** (or **5**) zooms the camera, keeping your direction, until every piece is on screen at once.
 - **Pieces:**
   - **Build-up:** pieces drop in one at a time in the order you placed them.
   - **Finished:** the whole model is visible from the start.
