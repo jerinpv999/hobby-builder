@@ -137,6 +137,7 @@ Press **?** or **H** (or the **Keys** button) to see this list in the app. On a 
 | | **Y** / **I** (+ **Shift** to go back) | Cycle the surface / cycle the edge or roof shape |
 | | **L** | Skylight or ridge cap on or off |
 | View | **5** | Fit every piece on screen |
+| View | **Shift+F** | Point the camera at the selected pieces |
 | Build | **Q** | Stick to surfaces on / off |
 | View | **Ctrl+arrows** / right-drag | Pan the view over the plate |
 | View | **Page Down** / **Page Up** / **End** | Show one layer less / more / all (cut the roof away) |
@@ -182,7 +183,9 @@ Moves stay on the baseplate, and anything left floating drops down. Every change
 
 ## Lighting
 
-The **Lighting** group has a Table lamp, Hanging lamp, Chandelier, Wall light, Spotlight, Lantern, Street light and LED light bar. Each has **Brightness (%)** and a **Light color** (warm, white, cool or your chosen color). Brightness 0 switches the light off. The **Daylight** slider in the toolbar, or **N**, dims the scene so lamps stand out. Only the 8 brightest lamps cast real light, to keep the scene fast.
+The **Lighting** group has a Table lamp, Hanging lamp, Chandelier, Wall light, Spotlight, Lantern, Street light and LED light bar. Each has **Brightness (%)** and a **Light color** (warm, white, cool or your chosen color). Brightness 0 switches the light off. The **Daylight** slider in the toolbar, or **N**, dims the scene so lamps stand out. Every lamp glows, and there is no limit on how many you place: each one has glowing parts and a soft halo (fainter in daylight), and a pool of real lights, sized to your graphics card, follows the lamps nearest to where you are looking or walking. So lamps far away still glow but only the nearby ones brighten the pieces around them.
+
+The **Ceiling lights and fans** group adds: Recessed downlight (round or square), LED panel light, Tube light, Ceiling dome light, Track lights, Pendant cluster, **False ceiling with lights** (flat, tray with a glowing cove, or coffered, with 0 to 9 downlights), and fans: **Ceiling fan** (3 to 5 blades, optional light kit), Table fan, Pedestal fan, Wall fan and Exhaust fan. Fan blades really turn (Stopped, Slow, Medium or Fast) and keep turning in photos-as-animation, GIFs and videos. Hang ceiling pieces with **Stick to surfaces** by pointing at the underside of a roof.
 
 ## Motion for individual pieces
 
@@ -253,6 +256,15 @@ The animation setup is saved too, in an optional `animation` block: build-up or 
 
 The recorded GIF or video itself is downloaded as a file when you export it.
 
+## Placing pieces while you walk
+
+Walk mode (**F**) now places pieces too, so you can furnish a room from the inside. Choose a piece, look at where you want it and click (or press Space). In walk mode:
+
+- the piece sticks to whatever you point at: the floor or a table top, the side of a wall (front facing into the room), or the underside of a roof or shelf (for hanging lamps);
+- a piece placed on the bare baseplate rests on the floor level, never on the roof above you;
+- if you aim a little low and the piece would clip the floor or a ledge, it is lifted until it rests clear;
+- **R** turns the piece, the piece settings card is shown, and a red preview means the spot is taken.
+
 ## Sticking pieces onto walls, tops and undersides
 
 Turn on **Stick to surfaces** (toolbar button, or **Q**) and point at any piece already built.
@@ -279,7 +291,7 @@ Tip: after cutting the roof away, use the **Top** view (3) to see the floor plan
 
 ## Objects list
 
-**Objects** in the top bar (or **Shift+M**) lists every kind of piece in your build, grouped like the picker, with a preview, its colors and how many you have. Click a row to select all pieces of that kind, then move, recolor, resize or delete them together.
+**Objects** in the top bar (or **Shift+M**) lists every kind of piece in your build, grouped like the picker, with a preview, its colors and how many you have. Click a row to select all pieces of that kind and point the camera at them, so you can see where they are, then move, recolor, resize or delete them together. In Select mode, the **Focus** button in the selection card (or **Shift+F**) points the camera at whatever is selected.
 
 ## Photos from different angles
 
@@ -320,7 +332,7 @@ Tips:
 
 ## Piece groups
 
-The app has about 360 pieces. The **All pieces** window (Shift+B) shows every one of them, and the sidebar groups them like this:
+The app has about 370 pieces. The **All pieces** window (Shift+B) shows every one of them, and the sidebar groups them like this:
 
 | Group | Pieces |
 |---|---|
@@ -390,5 +402,5 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 - Placement is grid-based, so pieces always snap to whole studs.
 - Stacking is simplified. Pieces rest on the highest piece under their footprint, and there is no real connection or collision check beyond that.
 - Saved camera angles and home tour stops are not stored in the JSON file.
-- Walk mode has no collision, so you can walk through walls and furniture. Place your stops where you want the camera to be.
+- Walk mode has no collision (you can also place pieces while walking), so you can walk through walls and furniture. Place your stops where you want the camera to be.
 - There is no multi-select or move tool. To reposition a piece, remove it and place it again.

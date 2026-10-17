@@ -4311,6 +4311,250 @@ reg("cliff", "Rock cliff 4×2", 4, 2, 5, false, () => {
   return g;
 });
 
+/* ===================== ceiling lights, false ceilings and fans ===================== */
+/* Anything with userData.spin = { axis, speed } is turned by the app (see spinFans), so fan blades really go round. */
+const spinning = (o, axis, speed) => {
+  o.userData.spin = { axis, speed };
+  return o;
+};
+const SPEEDS = { off: 0, slow: 2, medium: 6, fast: 12 };
+const speedParam = { key: "speed", label: "Blade speed", kind: "sel", def: "medium", options: [["off", "Stopped"], ["slow", "Slow"], ["medium", "Medium"], ["fast", "Fast"]] };
+const ceilingWhite = mat("#F1EFE8", { roughness: 0.85 });
+const ceilingTrim = mat("#D8D4C8", { roughness: 0.7 });
+const downLight = (y, dist, dir = [0, -1, 0]) => (o, c) => ({ kind: "spot", pos: [0, y, 0], dir, angle: 1.0, power: o.intensity / 100, color: toneOf(o, c), dist });
+
+regCustom("downlight", "Recessed downlight", [{ key: "shape", label: "Shape", kind: "sel", def: "round", options: [["round", "Round"], ["square", "Square"]] }, ...lightParams], () => ({ w: 1, d: 1, h: 0.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  if (o.shape === "round") {
+    Cyl(g, 0.3, 0.3, 0.06, ceilingTrim, 0.5, 0.2, 0.5);
+    Cyl(g, 0.22, 0.22, 0.05, glowMat(o, c), 0.5, 0.165, 0.5);
+  } else {
+    B(g, 0.6, 0.06, 0.6, ceilingTrim, 0.5, 0.2, 0.5);
+    B(g, 0.44, 0.05, 0.44, glowMat(o, c), 0.5, 0.165, 0.5);
+  }
+  return g;
+}, downLight(0.1, 12));
+
+regCustom("ledpanel", "LED panel light", [{ key: "pw", label: "Width", kind: "num", min: 1, max: 4, step: 1, def: 2 }, { key: "pd", label: "Length", kind: "num", min: 1, max: 4, step: 1, def: 2 }, ...lightParams], (o) => ({ w: o.pw, d: o.pd, h: 0.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, o.pw - 0.08, 0.07, o.pd - 0.08, ceilingTrim, o.pw / 2, 0.2, o.pd / 2);
+  B(g, o.pw - 0.28, 0.05, o.pd - 0.28, glowMat(o, c), o.pw / 2, 0.165, o.pd / 2);
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, 0.05, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 6 + Math.max(o.pw, o.pd) * 2 }));
+
+regCustom("tubelight", "Tube light", [{ key: "len", label: "Length", kind: "num", min: 1, max: 8, step: 1, def: 4 }, ...lightParams], (o) => ({ w: o.len, d: 1, h: 0.5, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, o.len - 0.1, 0.08, 0.22, steel, o.len / 2, 0.44, 0.5);
+  B(g, o.len - 0.22, 0.07, 0.14, glowMat(o, c), o.len / 2, 0.37, 0.5);
+  [0.06, o.len - 0.06].forEach((x) => B(g, 0.04, 0.12, 0.24, black, x, 0.4, 0.5));
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, 0.2, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 5 + o.len * 0.9 }));
+
+regCustom("flushdome", "Ceiling dome light", [{ key: "size", label: "Size", kind: "num", min: 1, max: 3, step: 1, def: 2 }, ...lightParams], (o) => ({ w: o.size, d: o.size, h: 0.5, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const m = o.size / 2;
+  Cyl(g, m * 0.7, m * 0.7, 0.07, ceilingTrim, m, 0.465, m);
+  const dome = add(g, G(THREE.SphereGeometry, m * 0.66, 18, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), glowMat(o, c), m, 0.43, m);
+  dome.scale.y = Math.min(0.55, 0.4 / (m * 0.66)); // stays above the floor line even for the biggest size
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, 0.15, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 6 + o.size * 2 }));
+
+regCustom("tracklight", "Track lights", [{ key: "len", label: "Length", kind: "num", min: 2, max: 8, step: 1, def: 4 }, ...lightParams], (o) => ({ w: o.len, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, o.len - 0.1, 0.07, 0.1, black, o.len / 2, 0.96, 0.5);
+  const n = Math.max(2, Math.round(o.len / 1.3));
+  for (let k = 0; k < n; k++) {
+    const x = ((k + 0.5) / n) * o.len;
+    Cyl(g, 0.03, 0.03, 0.2, black, x, 0.84, 0.5);
+    const head = Cyl(g, 0.12, 0.09, 0.3, black, x, 0.62, 0.55);
+    head.rotation.x = 0.35;
+    const lens = Cyl(g, 0.1, 0.1, 0.03, glowMat(o, c), x, 0.47, 0.62);
+    lens.rotation.x = 0.35;
+  }
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, 0.45, 0.1], power: o.intensity / 100, color: toneOf(o, c), dist: 6 + o.len * 1.2 }));
+
+regCustom("pendantcluster", "Pendant cluster", [hangParam, ...lightParams], (o) => ({ w: 2, d: 2, h: o.tall + 1, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const H = (o.tall + 1) * BH;
+  Cyl(g, 0.4, 0.4, 0.06, black, 1, H - 0.03, 1);
+  [[0.6, 0.7, 0.32], [1.4, 1.3, 0.5], [1.0, 1.0, 0.8]].forEach(([x, z, drop]) => {
+    const len = drop * (H - 0.5);
+    const yb = H - 0.06 - len;
+    tube(g, [x, H - 0.06, z], [x, yb + 0.2, z], 0.015, black);
+    Cyl(g, 0.04, 0.2, 0.2, white, x, yb + 0.1, z);
+    Sph(g, 0.1, glowMat(o, c), x, yb, z);
+  });
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, Math.max(0.3, (o.tall + 1) * BH * 0.4), 0], power: o.intensity / 100, color: toneOf(o, c), dist: 10 }));
+
+regCustom("falseceiling", "False ceiling with lights", [
+  { key: "cw", label: "Width", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+  { key: "cd", label: "Length", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+  { key: "style", label: "Style", kind: "sel", def: "tray", options: [["flat", "Flat"], ["tray", "Tray with cove light"], ["coffer", "Coffered"]] },
+  { key: "spots", label: "Downlights", kind: "num", min: 0, max: 9, step: 1, def: 4 },
+  ...lightParams,
+], (o) => ({ w: o.cw, d: o.cd, h: 0.5, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.cw;
+  const D = o.cd;
+  const glow = glowMat(o, c);
+  B(g, W - 0.04, 0.16, D - 0.04, ceilingWhite, W / 2, 0.42, D / 2); // the board
+  B(g, W, 0.04, 0.06, ceilingTrim, W / 2, 0.37, 0.03);
+  B(g, W, 0.04, 0.06, ceilingTrim, W / 2, 0.37, D - 0.03);
+  B(g, 0.06, 0.04, D, ceilingTrim, 0.03, 0.37, D / 2);
+  B(g, 0.06, 0.04, D, ceilingTrim, W - 0.03, 0.37, D / 2);
+  if (o.style === "tray") {
+    const iw = W - 1.2;
+    const id = D - 1.2;
+    B(g, iw, 0.1, id, ceilingWhite, W / 2, 0.29, D / 2); // the dropped centre
+    [0.6, D - 0.6].forEach((z) => B(g, iw + 0.3, 0.04, 0.12, glow, W / 2, 0.35, z)); // the glowing cove
+    [0.6, W - 0.6].forEach((x) => B(g, 0.12, 0.04, id + 0.3, glow, x, 0.35, D / 2));
+  } else if (o.style === "coffer") {
+    for (let x = 2; x < W - 0.5; x += 2) B(g, 0.08, 0.12, D - 0.1, ceilingTrim, x, 0.3, D / 2);
+    for (let z = 2; z < D - 0.5; z += 2) B(g, W - 0.1, 0.12, 0.08, ceilingTrim, W / 2, 0.3, z);
+  }
+  const n = o.spots;
+  if (n > 0) {
+    const cols = Math.ceil(Math.sqrt(n));
+    const rows = Math.ceil(n / cols);
+    for (let k = 0; k < n; k++) {
+      const cx = ((k % cols) + 0.5) / cols;
+      const cz = (Math.floor(k / cols) + 0.5) / rows;
+      const y = o.style === "tray" ? 0.22 : 0.33;
+      Cyl(g, 0.17, 0.17, 0.04, ceilingTrim, cx * W, y + 0.02, cz * D);
+      Cyl(g, 0.12, 0.12, 0.04, glow, cx * W, y - 0.01, cz * D);
+    }
+  }
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, 0.1, 0], power: o.intensity / 100 * (o.spots > 0 || o.style === "tray" ? 1 : 0.3), color: toneOf(o, c), dist: 7 + Math.max(o.cw, o.cd) * 1.4 }));
+
+/* ----- fans ----- */
+const bladeFan = (n, len, wid, mtl) => {
+  const hub = new THREE.Group();
+  for (let k = 0; k < n; k++) {
+    const arm = new THREE.Group();
+    const bl = B(arm, len, 0.03, wid, mtl, len / 2 + 0.25, 0, 0);
+    bl.rotation.x = 0.12;
+    arm.rotation.y = (k / n) * Math.PI * 2;
+    hub.add(arm);
+  }
+  return hub;
+};
+
+regCustom("ceilingfan", "Ceiling fan", [
+  hangParam,
+  { key: "blades", label: "Blades", kind: "sel", def: "3", options: [["3", "3 blades"], ["4", "4 blades"], ["5", "5 blades"]] },
+  speedParam,
+  { key: "kit", label: "Light kit", kind: "tog", def: true },
+  ...lightParams,
+], (o) => ({ w: 4, d: 4, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const my = Math.max(0.5, H - 0.35 - Math.max(0, (o.tall - 1) * BH * 0.6)); // motor height
+  Cyl(g, 0.22, 0.3, 0.1, white, 2, H - 0.05, 2);
+  tube(g, [2, H - 0.1, 2], [2, my + 0.1, 2], 0.035, white);
+  Cyl(g, 0.3, 0.26, 0.2, steel, 2, my, 2);
+  const hub = bladeFan(Number(o.blades), 1.6, 0.34, mat("#B07A45"));
+  hub.position.set(2, my - 0.08, 2);
+  spinning(hub, "y", SPEEDS[o.speed]);
+  g.add(hub);
+  Cyl(g, 0.2, 0.2, 0.05, steel, 2, my - 0.12, 2);
+  if (o.kit) {
+    Cyl(g, 0.12, 0.12, 0.06, steel, 2, my - 0.17, 2);
+    const bulb = add(g, G(THREE.SphereGeometry, 0.22, 14, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), glowMat(o, c), 2, my - 0.18, 2);
+    bulb.scale.y = 0.9;
+  }
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, Math.max(0.5, o.tall * BH - 0.35 - Math.max(0, (o.tall - 1) * BH * 0.6)) - 0.35, 0], power: o.kit ? o.intensity / 100 : 0, color: toneOf(o, c), dist: 9 }));
+
+regCustom("tablefan", "Table fan", [speedParam], () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.3, 0.34, 0.07, black, 0.5, 0.04, 0.5);
+  Cyl(g, 0.04, 0.05, 0.4, steel, 0.5, 0.26, 0.5);
+  Cyl(g, 0.1, 0.1, 0.3, black, 0.5, 0.5, 0.48).rotation.x = Math.PI / 2;
+  const hub = new THREE.Group();
+  for (let k = 0; k < 3; k++) {
+    const arm = new THREE.Group();
+    B(arm, 0.28, 0.02, 0.12, mat("#7FB3E0"), 0.18, 0, 0).rotation.x = 0.4;
+    arm.rotation.z = (k / 3) * Math.PI * 2;
+    hub.add(arm);
+  }
+  const fanHub = new THREE.Group();
+  fanHub.position.set(0.5, 0.5, 0.64);
+  fanHub.add(hub);
+  spinning(hub, "z", SPEEDS[o.speed]);
+  g.add(fanHub);
+  add(g, G(THREE.TorusGeometry, 0.34, 0.015, 6, 28), steel, 0.5, 0.5, 0.7);
+  add(g, G(THREE.TorusGeometry, 0.2, 0.01, 6, 24), steel, 0.5, 0.5, 0.72);
+  Cyl(g, 0.03, 0.03, 0.04, steel, 0.5, 0.5, 0.74).rotation.x = Math.PI / 2;
+  return g;
+});
+
+regCustom("pedestalfan", "Pedestal fan", [speedParam], () => ({ w: 1, d: 1, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.34, 0.38, 0.07, black, 0.5, 0.04, 0.5);
+  Cyl(g, 0.045, 0.045, 2.5, steel, 0.5, 1.3, 0.5);
+  Cyl(g, 0.12, 0.12, 0.34, black, 0.5, 2.9, 0.46).rotation.x = Math.PI / 2;
+  const hub = new THREE.Group();
+  for (let k = 0; k < 3; k++) {
+    const arm = new THREE.Group();
+    B(arm, 0.32, 0.02, 0.14, mat("#E8E8E8"), 0.2, 0, 0).rotation.x = 0.4;
+    arm.rotation.z = (k / 3) * Math.PI * 2;
+    hub.add(arm);
+  }
+  const holder = new THREE.Group();
+  holder.position.set(0.5, 2.9, 0.66);
+  holder.add(hub);
+  spinning(hub, "z", SPEEDS[o.speed]);
+  g.add(holder);
+  add(g, G(THREE.TorusGeometry, 0.38, 0.015, 6, 28), steel, 0.5, 2.9, 0.72);
+  add(g, G(THREE.TorusGeometry, 0.22, 0.01, 6, 24), steel, 0.5, 2.9, 0.74);
+  return g;
+});
+
+regCustom("wallfan", "Wall fan", [speedParam], () => ({ w: 1, d: 1, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, 0.3, 0.4, 0.06, black, 0.5, 1.2, 0.03);
+  tube(g, [0.5, 1.2, 0.06], [0.5, 1.1, 0.38], 0.04, black);
+  Cyl(g, 0.12, 0.12, 0.3, black, 0.5, 1.1, 0.44).rotation.x = Math.PI / 2;
+  const hub = new THREE.Group();
+  for (let k = 0; k < 3; k++) {
+    const arm = new THREE.Group();
+    B(arm, 0.34, 0.02, 0.15, mat("#F0F0F0"), 0.21, 0, 0).rotation.x = 0.4;
+    arm.rotation.z = (k / 3) * Math.PI * 2;
+    hub.add(arm);
+  }
+  const holder = new THREE.Group();
+  holder.position.set(0.5, 1.1, 0.62);
+  holder.add(hub);
+  spinning(hub, "z", SPEEDS[o.speed]);
+  g.add(holder);
+  add(g, G(THREE.TorusGeometry, 0.4, 0.015, 6, 28), steel, 0.5, 1.1, 0.68);
+  add(g, G(THREE.TorusGeometry, 0.24, 0.01, 6, 24), steel, 0.5, 1.1, 0.7);
+  return g;
+});
+
+regCustom("exhaustfan", "Exhaust fan", [speedParam], () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  B(g, 0.9, 0.9, 0.12, white, 0.5, 0.5, 0.06);
+  Cyl(g, 0.4, 0.4, 0.04, ceilingTrim, 0.5, 0.5, 0.14).rotation.x = Math.PI / 2;
+  const hub = new THREE.Group();
+  for (let k = 0; k < 4; k++) {
+    const arm = new THREE.Group();
+    B(arm, 0.3, 0.02, 0.14, mat("#9AA0A8"), 0.2, 0, 0).rotation.x = 0.5;
+    arm.rotation.z = (k / 4) * Math.PI * 2;
+    hub.add(arm);
+  }
+  const holder = new THREE.Group();
+  holder.position.set(0.5, 0.5, 0.18);
+  holder.add(hub);
+  spinning(hub, "z", SPEEDS[o.speed]);
+  g.add(holder);
+  Cyl(g, 0.06, 0.06, 0.05, black, 0.5, 0.5, 0.19).rotation.x = Math.PI / 2;
+  return g;
+});
+
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
@@ -4327,6 +4571,7 @@ export const GROUPS = [
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
   { title: "Fences and gates", keys: ["fence2", "fence", "panelfence", "ironfence", "meshfence", "gate2", "gate4", "gateopen"] },
   { title: "Roof rails", keys: ["roofrail2", "roofrail4", "railcorner", "glassrail"] },
+  { title: "Ceiling lights and fans", keys: ["downlight", "ledpanel", "tubelight", "flushdome", "tracklight", "pendantcluster", "falseceiling", "ceilingfan", "tablefan", "pedestalfan", "wallfan", "exhaustfan"] },
   { title: "Lighting", keys: ["tablelamp", "hanglamp", "chandelier", "walllight", "spotlight", "lantern", "streetlight", "streetlight2", "curvedlight", "solarlight", "floodlight", "bollardlight", "pathlight", "ledstrip"] },
   { title: "Floor tiles", keys: ["floortile", "floorc2", "floorc4", "floorw2", "floorw4", "floort2", "floort4"] },
   { title: "Garden tiles", keys: ["gardentile", "lawn2", "lawn4", "gpath", "gsteps", "paver2", "paver4", "cobble2", "cobble4"] },

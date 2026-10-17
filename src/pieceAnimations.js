@@ -160,6 +160,13 @@ export function applyPieceAnims(group, t) {
   }
 }
 
+/* Turn anything that spins by itself (fan blades). Pure in t, so video frames match the live view. */
+export function spinFans(group, t) {
+  const list = group.userData.spinners;
+  if (!list) return;
+  for (const o of list) o.rotation[o.userData.spin.axis] = o.userData.spin.speed * t;
+}
+
 /* Put every animated piece back where it was placed. */
 export function resetPieceAnims(group, clearDrop = false) {
   for (const hd of group.children) {

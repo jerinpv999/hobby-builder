@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { GIFEncoder, quantize, applyPalette } from "gifenc";
-import { applyPieceAnims, resetPieceAnims } from "./pieceAnimations";
+import { applyPieceAnims, resetPieceAnims, spinFans } from "./pieceAnimations";
 
 const ease = (x) => 1 - Math.pow(1 - x, 3);
 
@@ -84,6 +84,7 @@ export function poseScene(env, plan, t, order) {
     g.position.y = g.userData.baseY + drop;
   });
   // pieces with their own motion (spin, move, ...) follow the same clock as the video
+  spinFans(brickGroup, t);
   if (plan.pieceAnims !== false) applyPieceAnims(brickGroup, t);
   else resetPieceAnims(brickGroup);
   if (camera.fov !== plan.fov) {

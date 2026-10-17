@@ -17,6 +17,8 @@ A browser app: a resizable baseplate, about 360 pieces, a select/move/resize/rec
 | `pieceAnimations.js` | Motion types and the pure function `poseAt(anim, rot, h, t)` |
 | `animation.js` | Video timeline, camera paths, GIF and WebM export |
 | Camera and placement | `orbit` has a look-at point (`tx,ty,tz`) moved by `panBy`; `cut` (Show layers) hides pieces with `y >= cut` via `holder.userData.cut`, and `stackInfo(..., {below, h})` stacks only on what is still shown |
+| Lights and spinning | every lamp gets a halo Sprite; a fixed pool of real PointLight/SpotLight (size from `renderer.capabilities.maxFragmentUniforms`) is re-assigned to the lamps nearest the view by `assignLights`; `userData.spin = {axis, speed}` on a Group is turned by `spinFans(group, t)` (live loop and `poseScene`) |
+| Walk placement | in walk mode `updateHover`/`placeAt` use the walk camera ray, always stick to surfaces, and limit floor support to layers below eye height (`lim`) |
 | Surface placement | `attach` (key Q): `updateHover` reads the hit normal and sets position, rotation and y; such pieces carry `att:true`, may sit on quarter-stud x/z and are skipped by `settle`/`stackInfo` lift; `boxHits` is the overlap test; saved as `att` |
 | `photo.js` | Still photos from preset or saved angles (`takePhotos`, `contactSheet`); hides ghost, selection and path helpers while shooting |
 | `thumbs.js` | Picker preview images (offscreen renderer, cached) |
