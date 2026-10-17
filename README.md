@@ -137,6 +137,9 @@ Press **?** or **H** (or the **Keys** button) to see this list in the app. On a 
 | | **Y** / **I** (+ **Shift** to go back) | Cycle the surface / cycle the edge or roof shape |
 | | **L** | Skylight or ridge cap on or off |
 | View | **5** | Fit every piece on screen |
+| Build | **Q** | Stick to surfaces on / off |
+| View | **Ctrl+arrows** / right-drag | Pan the view over the plate |
+| View | **Page Down** / **Page Up** / **End** | Show one layer less / more / all (cut the roof away) |
 | | **Shift+B** | Browse every piece in one window |
 | | **Shift+M** | Objects list: every kind of piece in your build |
 | Photos | **J** / **Shift+J** | Photo of the current view / open the Photos panel |
@@ -250,6 +253,26 @@ The animation setup is saved too, in an optional `animation` block: build-up or 
 
 The recorded GIF or video itself is downloaded as a file when you export it.
 
+## Sticking pieces onto walls, tops and undersides
+
+Turn on **Stick to surfaces** (toolbar button, or **Q**) and point at any piece already built.
+
+- **Side of a wall or object**: the piece sticks to it with its back against the surface and its front turned out, centred where you point (half-stud steps along the wall, quarter-layer steps up and down). Good for mirrors, wall lights, TVs, shelves and signs.
+- **Top**: the piece stands on the surface where you point, even between studs.
+- **Underside**: the piece hangs from it, for hanging lamps under a roof or shelf.
+- A red preview means the spot is taken or would go off the baseplate (enlarge the plate to decorate the outside of an edge wall). Pointing at the baseplate places normally.
+
+Stuck-on pieces are saved with the file and stay exactly where you put them. They do not follow a wall that is moved or deleted, so select both together to move them. In Select mode, **Raise / Lower** nudges a stuck-on piece a quarter layer, and the move step can be a quarter stud.
+
+## Building inside a house, and moving the view
+
+Pieces normally stack on whatever is highest under them, so a click inside a finished house lands on the roof. Two controls fix that.
+
+- **Show layers** (toolbar slider, or **Page Down** / **Page Up**, **End** for all): hides the roof and any upper floors. Pieces you place now land on the floor inside, and a piece that is too tall for the room is shown red and refused. Hidden pieces stay hidden in photos, GIFs and videos, so this also makes cut-away shots. Move the slider back to "all" to put the roof back.
+- **Pan** (the arrow buttons, **right-drag**, or **Ctrl+arrow keys**): slides the view over the plate in any direction, and the up/down buttons raise or lower it. Scroll closer (it now zooms in much further) to work in a small room. **Fit all** re-centres on the build and **0** resets the view.
+
+Tip: after cutting the roof away, use the **Top** view (3) to see the floor plan and click where each piece should go.
+
 ## All pieces window
 
 **All pieces** in the top bar (or **Shift+B**) opens a window with every piece in the catalog on one scrollable page, grouped like the picker, with previews in your current color. Search narrows it, and clicking a piece chooses it and returns you to building.
@@ -276,7 +299,7 @@ Photos leave out the placement ghost, selection outlines and motion-path lines.
 The **Camera and video** section of the sidebar controls the animation.
 
 - **Views:** Front, Side, Top and Iso jump the camera to a standard angle.
-- **Fit all** (or **5**) zooms the camera, keeping your direction, until every piece is on screen at once.
+- **Fit all** (or **5**) centres on the build and zooms the camera, keeping your direction, until every piece is on screen at once.
 - **Pieces:**
   - **Build-up:** pieces drop in one at a time in the order you placed them.
   - **Finished:** the whole model is visible from the start.
@@ -297,26 +320,31 @@ Tips:
 
 ## Piece groups
 
+The app has about 360 pieces. The **All pieces** window (Shift+B) shows every one of them, and the sidebar groups them like this:
+
 | Group | Pieces |
 |---|---|
-| Bricks | 1×1, 1×2, 1×3, 1×4, 2×2, 2×3, 2×4 |
-| Flat bricks (smooth top) | The same sizes as bricks, without studs |
-| Flat tiles (thin) | 1×2, 2×2, 2×4, 4×4, 4×8 |
-| Building parts | Window, Door |
-| Roofs | Roof 2×2 and 4×2, Gable 2×4 and 4×4, Hip 2×2 and 4×4, Spire, Dome |
-| Wooden logs | Log 1×2, Log 1×4, Log pile, Firewood, Tree stump |
-| Trees | Pine, Round tree, Palm |
-| Plants and stones | Pot, Bush, Flower bed, Sunflower, Cactus, Grass, Hedge, Stone, Boulder |
-| People | Person, Worker |
-| Road vehicles | Car, Bus |
-| Two-wheelers | Bicycle, Kick scooter, Scooter, Motorbike |
-| Railway | Track 2×2, Track 2×4, Track curve, Locomotive, Train coach, Cargo wagon |
-| Water and boats | Pond, River, Lake, Sea, Motor boat, Sailboat, Cargo ship |
-| Furniture | Stool, Chair, Armchair, Sofa, Table 2×2 and 4×2, Dresser, Wardrobe, Bookshelf, Bed, Floor lamp |
-| Home | Light bulb, TV, Fridge, Oven |
-| Kitchen | Frying pan, Cooking pot, Kettle, Utensils |
+| Bricks, flat bricks, tiles, round bricks | Plain building pieces in many sizes |
+| Building parts, stairs and ladders, roofs, custom roofs | Windows (including curtain), doors (including sliding), steps, ladders, roofs and roof logs |
+| Trees | Pine, Round, Palm, Birch, Weeping willow, Maple, Cherry blossom, Banyan, Mango, Coconut, Bamboo, Baobab, Cypress, Apple, Dead tree, Christmas tree, Tall pine, Snowy pine, Acacia |
+| Flowering plants | Rose, Tulips, Lavender, Daisies, Orchid, Hibiscus, Marigold, Lotus pond, Bougainvillea trellis, Hanging basket, Flower garden, Wildflower meadow, Planter |
+| Plants and stones, garden things, garden tiles | Pots, bushes, hedges, stones, sheds, greenhouse and more |
+| Animals | Horse, Cow, Sheep, Pig, Goat, Chicken, Duck, Deer, Zebra, Lion, Tiger, Bear, Panda, Elephant, Giraffe, Camel, Monkey, Penguin, Turtle, Frog, Crocodile, Dolphin (plus the Pets group: dog, cat, rabbit, parrot, fish bowl) |
+| Road vehicles | Car, Taxi, SUV, Police car, Race car, Pickup, Van, Ambulance, Fire truck, Cargo truck, Auto rickshaw, Bus, School bus, Double-decker |
+| Construction vehicles | Dump truck, Cement mixer, Tractor, Excavator, Bulldozer, Mobile crane |
+| Air vehicles | Helicopter, Fighter jet, Passenger plane, Hot air balloon, Rocket |
+| Two-wheelers, railway | Bicycle, scooters, motorbike, tracks, locomotive, coach, wagon, Tram |
+| Water and boats | Pond, River, Lake, Sea, pools, Motor boat, Sailboat, Cargo ship, Canoe, Submarine |
+| Bridges and construction | Bridge deck, Bridge pier, Arch bridge, Truss bridge, Suspension bridge, Cable-stayed bridge, Structural beam, Structural column, Scaffolding, Tower crane, Traffic cone, Road barrier |
+| Lighting | Table lamp, Hanging lamp, Chandelier, Wall light, Spotlight, Lantern, Street light, Double street light, Curved street light, Solar street light, Flood light tower, Bollard light, Garden path light, LED light bar |
+| Roads | Road pieces, crossing, pavement, Traffic light, Road sign |
+| Landscape | Ocean, River (custom, straight or bend), Waterfall, Mountain, Forest, Grassy hill, Rock cliff, Tropical island |
+| Kitchen, kitchen units | Oven, Gas stove, Sink, Pan, Pot, Kettle, Utensils, Microwave, Toaster, Blender, Coffee maker, Rice cooker, Mixer grinder, Pressure cooker, Wok, Tawa, Tandoor, Cutting board, Plate stack, Dinner set, Fruit bowl, Base cabinet, Kitchen island, Pantry, Dishwasher, Range hood, Water dispenser |
+| People, furniture, beds, bathroom, home | As before |
 
-Tracks and water are a quarter of a brick tall, so a train sits on its rails and a boat sits on the water. Tables, the stool, dresser, wardrobe, bookshelf, fridge, oven, logs, flat pieces, tracks and water can have other pieces placed on top. Roofs, trees, plants, vehicles, people, most small items and the bed cannot.
+Pieces marked "(custom)" have their own settings, for example Ocean (size, waves, beach), River (width, length, bend, rapids), Waterfall (width, height, pool), Mountain (size, height, peaks, style), Forest (size, tree kind, density), Bridge deck (length, width, deck type, rails), Structural beam and column, Scaffolding (bays and levels) and all the lights.
+
+Tracks and water are a quarter of a brick tall, so a train sits on its rails and a boat sits on the water. Tables, cabinets, the island, dishwasher, bridge pieces, beams, flat pieces, tracks and water can have other pieces placed on top. Vehicles, trees, plants, animals, people and most small items cannot.
 
 ## Adding your own pieces
 

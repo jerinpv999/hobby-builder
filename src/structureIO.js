@@ -36,7 +36,7 @@ export function serializeStructure(N, pieces, setup) {
       version: 1,
       baseSize: N,
       ...(animation ? { animation } : {}),
-      pieces: pieces.map(({ type, x, z, y, rot, color, opts, dim, anim }) => ({ type, x, z, y, rot, color, ...(opts ? { opts } : {}), ...(dim ? { dim } : {}), ...(anim ? { anim } : {}) })),
+      pieces: pieces.map(({ type, x, z, y, rot, color, opts, dim, anim, att }) => ({ type, x, z, y, rot, color, ...(att ? { att: true } : {}), ...(opts ? { opts } : {}), ...(dim ? { dim } : {}), ...(anim ? { anim } : {}) })),
     },
     null,
     2
@@ -62,7 +62,9 @@ export function parseStructure(text) {
   const pieces = data.pieces.map((p, i) => {
     const t = p && TYPES[p.type];
     if (!t) throw new Error(`Piece ${i + 1}: unknown type.`);
-    if (![p.x, p.z, p.rot].every(Number.isInteger) || p.rot < 0 || p.rot > 3 || !(p.y >= 0 && p.y * 4 === Math.round(p.y * 4)))
+    const att = p.att === true; // stuck onto a wall, top or underside: may sit between studs
+    const onGrid = att ? [p.x, p.z].every((v) => typeof v === "number" && Number.isFinite(v) && v * 4 === Math.round(v * 4)) : [p.x, p.z].every(Number.isInteger);
+    if (!onGrid || !Number.isInteger(p.rot) || p.rot < 0 || p.rot > 3 || !(p.y >= 0 && p.y * 4 === Math.round(p.y * 4)))
       throw new Error(`Piece ${i + 1}: invalid position or rotation.`);
     if (typeof p.color !== "string" || !/^#[0-9a-f]{6}$/i.test(p.color))
       throw new Error(`Piece ${i + 1}: invalid color.`);
@@ -73,7 +75,7 @@ export function parseStructure(text) {
     const [w, d] = p.rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
     if (p.x < 0 || p.z < 0 || p.x + w > N || p.z + d > N)
       throw new Error(`Piece ${i + 1} is outside the baseplate.`);
-    return { id: i + 1, type: t.key, rot: p.rot, x: p.x, z: p.z, y: p.y, w, d, h: dm.h, top: dm.top, color: p.color, ...(opts ? { opts } : {}), ...(dim ? { dim } : {}), ...(anim ? { anim } : {}) };
+    return { id: i + 1, type: t.key, rot: p.rot, x: p.x, z: p.z, y: p.y, w, d, h: dm.h, top: dm.top, color: p.color, ...(att ? { att: true } : {}), ...(opts ? { opts } : {}), ...(dim ? { dim } : {}), ...(anim ? { anim } : {}) };
   });
   return { N, pieces: settle(pieces), setup: cleanSetup(data.animation) };
 }

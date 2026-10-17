@@ -156,7 +156,7 @@ export function applyPieceAnims(group, t) {
       base.y + (hd.userData.dropY || 0) + r.offset.y + r.pivot.y - moved.y,
       base.z + r.offset.z + r.pivot.z - moved.z
     );
-    hd.visible = hd.userData.revealed !== false && r.visible;
+    hd.visible = !hd.userData.cut && hd.userData.revealed !== false && r.visible;
   }
 }
 
@@ -168,6 +168,6 @@ export function resetPieceAnims(group, clearDrop = false) {
     hd.quaternion.identity();
     hd.scale.set(1, 1, 1);
     hd.position.set(hd.userData.base.x, hd.userData.base.y + (hd.userData.dropY || 0), hd.userData.base.z);
-    hd.visible = hd.userData.revealed !== false;
+    hd.visible = !hd.userData.cut && hd.userData.revealed !== false;
   }
 }

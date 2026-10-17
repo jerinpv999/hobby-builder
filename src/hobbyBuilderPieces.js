@@ -2627,6 +2627,1690 @@ regCustom(
 );
 
 /* How the picker groups pieces */
+
+/* =====================================================================
+   Big batch: more vehicles, street lights, bridges and beams, flowers,
+   trees, animals, kitchen items and landscape.
+   ===================================================================== */
+const tintM = mat("#2C4A5E", { roughness: 0.15 });
+const lampM = mat("#FFF3B0", { emissive: "#FFF3B0", emissiveIntensity: 0.3 });
+const tailM = mat("#D01012");
+const concreteM = mat("#A9ADB3", { roughness: 0.85 });
+const woodM = mat("#A8743C");
+const orangeM = mat("#F28C28");
+
+/* ----- road vehicles (front toward +z) ----- */
+const lampsAt = (g, len, y = 0.7, xs = [0.45, 1.55]) =>
+  xs.forEach((x) => {
+    B(g, 0.3, 0.18, 0.06, lampM, x, y, len - 0.1);
+    B(g, 0.3, 0.18, 0.06, tailM, x, y, 0.1);
+  });
+// a passenger car body; returns the roof height
+function sedan(g, c, o = {}) {
+  const { len = 4, cabZ = 1.55, cabLen = 1.7, cabH = 0.7, lift = 0 } = o;
+  const body = mat(c);
+  const r = 0.42 + lift;
+  for (const x of [0.17, 1.83]) for (const z of [0.85, len - 0.85]) wheel(g, x, r, z, r, 0.28);
+  B(g, 1.7, 0.65, len - 0.2, body, 1, 0.625 + lift, len / 2);
+  const cy = 0.95 + lift + cabH / 2;
+  B(g, 1.5, cabH, cabLen, body, 1, cy, cabZ);
+  B(g, 1.52, cabH * 0.57, cabLen * 0.76, tintM, 1, cy, cabZ);
+  B(g, 1.3, cabH * 0.57, cabLen + 0.02, tintM, 1, cy, cabZ);
+  B(g, 1.5, 0.08, cabLen, body, 1, 0.95 + lift + cabH + 0.04, cabZ);
+  lampsAt(g, len, 0.7 + lift);
+  return 0.95 + lift + cabH + 0.08;
+}
+// a truck frame with a cab at the front (+z end) and wheels at the given z positions
+function truckBase(g, c, len, axles, cabH = 1.3) {
+  B(g, 1.7, 0.5, len - 0.2, black, 1, 0.7, len / 2);
+  axles.forEach((z) => [0.17, 1.83].forEach((x) => wheel(g, x, 0.45, z, 0.45, 0.3)));
+  B(g, 1.8, cabH, 1.6, mat(c), 1, 0.75 + cabH / 2, len - 1.0);
+  B(g, 1.5, 0.5, 0.05, tintM, 1, 0.75 + cabH * 0.7, len - 0.19);
+  B(g, 1.82, 0.5, 0.9, tintM, 1, 0.75 + cabH * 0.7, len - 1.0);
+  B(g, 1.8, 0.2, 0.1, steel, 1, 0.55, len - 0.1);
+  [0.45, 1.55].forEach((x) => {
+    B(g, 0.3, 0.18, 0.06, lampM, x, 0.9, len - 0.17);
+    B(g, 0.3, 0.18, 0.06, tailM, x, 0.8, 0.1);
+  });
+}
+const beacon = (g, x, y, z, col) => B(g, 0.2, 0.1, 0.2, lit(col), x, y, z);
+
+reg("taxi", "Taxi", 2, 4, 2, false, (c) => {
+  const g = new THREE.Group();
+  const roof = sedan(g, c);
+  B(g, 1.72, 0.1, 3.82, black, 1, 0.78, 2);
+  B(g, 0.5, 0.16, 0.26, lit("#FFF6C8"), 1, roof + 0.08, 1.55);
+  return g;
+});
+reg("suv", "SUV", 2, 4, 2, false, (c) => {
+  const g = new THREE.Group();
+  const roof = sedan(g, c, { cabLen: 2.4, cabZ: 1.7, cabH: 0.85, lift: 0.1 });
+  [0.3, 1.7].forEach((x) => B(g, 0.05, 0.05, 2.2, steel, x, roof + 0.05, 1.7));
+  Cyl(g, 0.3, 0.3, 0.14, black, 1, 1.1, 0.07).rotation.x = Math.PI / 2;
+  return g;
+});
+reg("policecar", "Police car", 2, 4, 2, false, (c) => {
+  const g = new THREE.Group();
+  const roof = sedan(g, c);
+  B(g, 1.72, 0.2, 2.4, white, 1, 0.65, 2);
+  B(g, 0.9, 0.1, 0.25, black, 1, roof + 0.05, 1.55);
+  beacon(g, 0.75, roof + 0.13, 1.55, "#FF2A2A");
+  beacon(g, 1.25, roof + 0.13, 1.55, "#2A6BFF");
+  return g;
+});
+reg("racecar", "Race car", 2, 4, 1, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  [0.9, 3.0].forEach((z) => [0.2, 1.8].forEach((x) => wheel(g, x, 0.38, z, 0.38, 0.36)));
+  B(g, 0.9, 0.3, 3.6, body, 1, 0.5, 2);
+  B(g, 0.5, 0.2, 0.8, body, 1, 0.45, 3.7);
+  B(g, 0.6, 0.25, 0.7, black, 1, 0.75, 1.6);
+  Sph(g, 0.14, white, 1, 0.9, 1.5);
+  B(g, 1.9, 0.05, 0.4, black, 1, 0.28, 3.8);
+  B(g, 1.8, 0.05, 0.5, black, 1, 1.0, 0.35);
+  [0.5, 1.5].forEach((x) => B(g, 0.05, 0.5, 0.1, black, x, 0.75, 0.35));
+  B(g, 1.0, 0.04, 0.5, white, 1, 0.66, 2.7);
+  return g;
+});
+reg("pickup", "Pickup truck", 2, 5, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  [0.9, 4.0].forEach((z) => [0.17, 1.83].forEach((x) => wheel(g, x, 0.42, z, 0.42, 0.28)));
+  B(g, 1.7, 0.6, 4.8, body, 1, 0.6, 2.5);
+  B(g, 1.5, 0.75, 1.5, body, 1, 1.275, 2.9);
+  B(g, 1.52, 0.4, 1.0, tintM, 1, 1.35, 2.9);
+  B(g, 1.3, 0.4, 1.52, tintM, 1, 1.35, 2.9);
+  B(g, 1.5, 0.08, 1.5, body, 1, 1.69, 2.9);
+  B(g, 1.6, 0.06, 2.0, black, 1, 0.93, 1.1);
+  [0.12, 1.88].forEach((x) => B(g, 0.08, 0.45, 2.0, body, x, 1.15, 1.1));
+  B(g, 1.7, 0.45, 0.08, body, 1, 1.15, 0.1);
+  lampsAt(g, 5);
+  return g;
+});
+// van body shared by the van and the ambulance
+function vanBody(g, col, accent) {
+  const body = mat(col);
+  [0.95, 4.0].forEach((z) => [0.17, 1.83].forEach((x) => wheel(g, x, 0.42, z, 0.42, 0.28)));
+  B(g, 1.7, 0.5, 4.8, black, 1, 0.55, 2.5);
+  B(g, 1.8, 1.0, 3.3, body, 1, 1.3, 1.75);
+  B(g, 1.7, 1.0, 1.4, body, 1, 1.3, 4.1);
+  B(g, 1.72, 0.4, 1.0, tintM, 1, 1.5, 4.15);
+  B(g, 1.5, 0.45, 0.05, tintM, 1, 1.5, 4.82);
+  if (accent) B(g, 1.82, 0.14, 3.3, mat(accent), 1, 1.1, 1.75);
+  lampsAt(g, 5);
+}
+reg("van", "Van", 2, 5, 2, false, (c) => {
+  const g = new THREE.Group();
+  vanBody(g, c, null);
+  return g;
+});
+reg("ambulance", "Ambulance", 2, 5, 2, false, (c) => {
+  const g = new THREE.Group();
+  vanBody(g, "#F4F4F4", c);
+  [0.09, 1.91].forEach((x) => {
+    B(g, 0.04, 0.5, 0.14, tailM, x, 1.5, 1.7);
+    B(g, 0.04, 0.14, 0.5, tailM, x, 1.5, 1.7);
+  });
+  beacon(g, 0.7, 1.85, 4.1, "#FF2A2A");
+  beacon(g, 1.3, 1.85, 4.1, "#2A6BFF");
+  return g;
+});
+reg("firetruck", "Fire truck", 2, 7, 2, false, (c) => {
+  const g = new THREE.Group();
+  truckBase(g, c, 7, [1.0, 2.2, 5.9], 1.0);
+  const body = mat(c);
+  B(g, 1.8, 0.9, 4.2, body, 1, 1.35, 2.8);
+  B(g, 1.84, 0.5, 3.8, steel, 1, 1.3, 2.8);
+  [0.6, 1.4].forEach((x) => B(g, 0.05, 0.05, 4.6, steel, x, 1.95, 2.7));
+  for (let z = 0.6; z < 5; z += 0.45) B(g, 0.8, 0.04, 0.04, steel, 1, 1.95, z);
+  beacon(g, 0.65, 1.95, 6.1, "#FF2A2A");
+  beacon(g, 1.35, 1.95, 6.1, "#2A6BFF");
+  return g;
+});
+reg("truck", "Cargo truck", 2, 7, 3, false, (c) => {
+  const g = new THREE.Group();
+  truckBase(g, c, 7, [0.9, 2.0, 5.9]);
+  B(g, 1.9, 1.9, 5.0, white, 1, 1.9, 2.9);
+  B(g, 1.92, 0.12, 5.0, mat(shade(c, 0.9)), 1, 1.2, 2.9);
+  return g;
+});
+reg("dumptruck", "Dump truck", 2, 6, 3, false, (c) => {
+  const g = new THREE.Group();
+  truckBase(g, c, 6, [0.9, 1.9, 4.6]);
+  B(g, 1.9, 0.9, 3.8, mat(shade(c, 0.85)), 1, 1.6, 2.1).rotation.x = 0.12;
+  tube(g, [1, 0.95, 3.4], [1, 1.45, 2.6], 0.06, steel);
+  return g;
+});
+reg("cement", "Cement mixer", 2, 6, 3, false, (c) => {
+  const g = new THREE.Group();
+  truckBase(g, c, 6, [0.9, 1.9, 4.7]);
+  Cyl(g, 0.8, 0.35, 3.0, orangeM, 1, 1.95, 2.55).rotation.x = Math.PI / 2 + 0.3;
+  B(g, 0.3, 0.08, 0.8, steel, 1, 2.45, 0.7).rotation.x = 0.5;
+  tube(g, [1.7, 0.9, 1.0], [1.7, 2.6, 1.0], 0.03, steel);
+  return g;
+});
+reg("tractor", "Tractor", 2, 3, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  B(g, 0.9, 0.3, 2.6, black, 1, 0.7, 1.5);
+  B(g, 0.9, 0.75, 1.3, body, 1, 1.15, 2.2);
+  [0.17, 1.83].forEach((x) => {
+    wheel(g, x, 0.75, 0.85, 0.75, 0.33);
+    wheel(g, x, 0.4, 2.45, 0.4, 0.25);
+  });
+  [[0.45, 0.35], [1.55, 0.35], [0.45, 1.4], [1.55, 1.4]].forEach(([x, z]) => B(g, 0.07, 1.1, 0.07, body, x, 1.55, z));
+  B(g, 1.3, 0.07, 1.2, body, 1, 2.15, 0.9);
+  B(g, 0.6, 0.15, 0.5, black, 1, 1.0, 0.8);
+  Cyl(g, 0.05, 0.05, 0.6, black, 0.75, 1.9, 2.5);
+  [0.6, 1.4].forEach((x) => B(g, 0.2, 0.15, 0.06, lampM, x, 1.2, 2.88));
+  return g;
+});
+reg("excavator", "Excavator", 3, 5, 3, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  [0.5, 2.5].forEach((x) => {
+    B(g, 0.7, 0.55, 4.2, black, x, 0.4, 2.2);
+    [0.5, 1.4, 2.3, 3.2, 3.9].forEach((z) => Cyl(g, 0.22, 0.22, 0.74, steel, x, 0.4, z).rotation.z = Math.PI / 2);
+  });
+  B(g, 2.2, 0.35, 2.2, body, 1.5, 0.85, 1.7);
+  B(g, 2.2, 0.55, 1.0, body, 1.5, 1.3, 0.8);
+  B(g, 1.0, 1.0, 1.1, body, 0.95, 1.6, 2.2);
+  B(g, 0.9, 0.55, 1.0, tintM, 0.95, 1.8, 2.25);
+  tube(g, [1.9, 1.3, 2.4], [1.9, 3.2, 3.8], 0.14, body);
+  tube(g, [1.9, 3.2, 3.8], [1.9, 1.7, 4.6], 0.11, body);
+  B(g, 0.7, 0.45, 0.35, steel, 1.9, 1.4, 4.65).rotation.x = 0.4;
+  return g;
+});
+reg("bulldozer", "Bulldozer", 3, 4, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  [0.45, 2.55].forEach((x) => {
+    B(g, 0.7, 0.7, 3.4, black, x, 0.4, 1.9);
+    [0.5, 1.4, 2.4, 3.2].forEach((z) => Cyl(g, 0.25, 0.25, 0.74, steel, x, 0.4, z).rotation.z = Math.PI / 2);
+  });
+  B(g, 1.7, 0.7, 2.4, body, 1.5, 1.0, 1.6);
+  B(g, 1.5, 0.3, 1.0, body, 1.5, 1.4, 2.5);
+  B(g, 1.4, 0.8, 1.2, body, 1.5, 1.75, 0.9);
+  B(g, 1.42, 0.45, 0.9, tintM, 1.5, 1.85, 0.9);
+  B(g, 1.6, 0.06, 1.3, body, 1.5, 2.2, 0.9);
+  B(g, 2.9, 0.95, 0.15, steel, 1.5, 0.75, 3.85);
+  [0.8, 2.2].forEach((x) => tube(g, [x, 0.8, 2.7], [x, 0.75, 3.8], 0.06, steel));
+  return g;
+});
+reg("crane", "Mobile crane", 2, 8, 4, false, (c) => {
+  const g = new THREE.Group();
+  truckBase(g, c, 8, [1.0, 2.3, 6.9]);
+  B(g, 1.9, 0.25, 5.2, mat(shade(c, 0.8)), 1, 1.0, 3.2);
+  [0.2, 1.8].forEach((x) => tube(g, [x, 1.0, 1.5], [x, 0.1, 1.5], 0.07, steel));
+  tube(g, [1, 1.3, 1.2], [1, 4.3, 6.6], 0.15, mat("#F2CD37"));
+  tube(g, [1, 4.3, 6.6], [1, 3.0, 6.6], 0.02, black);
+  Sph(g, 0.1, steel, 1, 2.95, 6.6);
+  return g;
+});
+reg("rickshaw", "Auto rickshaw", 2, 3, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  wheel(g, 1, 0.35, 2.6, 0.35, 0.22);
+  [0.17, 1.83].forEach((x) => wheel(g, x, 0.35, 0.6, 0.35, 0.25));
+  B(g, 1.5, 0.45, 2.0, body, 1, 0.65, 1.2);
+  B(g, 0.8, 0.5, 0.8, body, 1, 0.85, 2.4);
+  B(g, 1.5, 0.5, 0.9, mat("#3A2A1A"), 1, 1.0, 0.6);
+  [[0.2, 0.2], [1.8, 0.2], [0.2, 1.7], [1.8, 1.7]].forEach(([x, z]) => B(g, 0.06, 1.1, 0.06, black, x, 1.45, z));
+  B(g, 1.8, 0.08, 1.7, mat("#222"), 1, 2.0, 0.95);
+  B(g, 1.3, 0.5, 0.05, tintM, 1, 1.55, 1.78);
+  tube(g, [0.5, 1.2, 2.3], [1.5, 1.2, 2.3], 0.03, black);
+  B(g, 0.25, 0.15, 0.06, lampM, 1, 0.95, 2.82);
+  return g;
+});
+reg("schoolbus", "School bus", 2, 6, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  [1.0, 4.6].forEach((z) => [0.17, 1.83].forEach((x) => wheel(g, x, 0.42, z, 0.42, 0.28)));
+  B(g, 1.9, 1.4, 4.7, body, 1, 1.15, 2.45);
+  B(g, 1.8, 0.8, 1.0, body, 1, 0.9, 5.4);
+  B(g, 1.92, 0.4, 4.4, tintM, 1, 1.45, 2.4);
+  B(g, 1.92, 0.1, 4.7, black, 1, 0.95, 2.45);
+  B(g, 1.5, 0.4, 0.05, tintM, 1, 1.4, 5.0);
+  [0.45, 1.55].forEach((x) => B(g, 0.3, 0.16, 0.06, lampM, x, 0.8, 5.92));
+  B(g, 0.5, 0.2, 0.04, tailM, 1, 0.8, 0.1);
+  return g;
+});
+reg("doubledecker", "Double-decker bus", 2, 6, 3, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  [1.0, 4.7].forEach((z) => [0.17, 1.83].forEach((x) => wheel(g, x, 0.42, z, 0.42, 0.28)));
+  B(g, 1.9, 3.0, 5.8, body, 1, 1.85, 3);
+  [1.35, 2.75].forEach((y) => {
+    B(g, 1.92, 0.55, 5.2, tintM, 1, y, 3);
+    B(g, 1.7, 0.55, 5.84, tintM, 1, y, 3);
+  });
+  B(g, 1.92, 0.08, 5.8, white, 1, 2.1, 3);
+  B(g, 1.94, 0.08, 5.82, white, 1, 3.4, 3);
+  B(g, 1.9, 0.1, 5.8, mat(shade(c, 0.8)), 1, 3.38, 3);
+  return g;
+});
+reg("tram", "Tram", 2, 8, 2, false, (c) => {
+  const g = new THREE.Group();
+  [1.2, 6.8].forEach((z) => [0.2, 1.8].forEach((x) => wheel(g, x, 0.3, z, 0.3, 0.2)));
+  B(g, 1.9, 1.4, 7.8, mat(c), 1, 1.0, 4);
+  B(g, 1.92, 0.5, 7.2, tintM, 1, 1.3, 4);
+  B(g, 1.9, 0.1, 7.8, white, 1, 1.75, 4);
+  [[0.6, 6.8], [1.4, 6.8]].forEach(([x, z]) => tube(g, [x, 1.8, z - 0.9], [1, 2.25, z], 0.03, black));
+  B(g, 1.0, 0.04, 0.5, black, 1, 2.28, 6.8);
+  [0.6, 1.4].forEach((x) => B(g, 0.2, 0.15, 0.06, lampM, x, 0.7, 7.93));
+  return g;
+});
+reg("balloon", "Hot air balloon", 3, 3, 6, false, (c) => {
+  const g = new THREE.Group();
+  const env = Sph(g, 1.4, mat(c), 1.5, 4.3, 1.5);
+  env.scale.set(1, 1.25, 1);
+  [-0.6, 0.5].forEach((dy) => {
+    const R = 1.4 * Math.sqrt(1 - Math.pow(dy / 1.75, 2)) + 0.015;
+    add(g, G(THREE.TorusGeometry, R, 0.05, 6, 28), white, 1.5, 4.3 + dy, 1.5).rotation.x = Math.PI / 2;
+  });
+  B(g, 0.7, 0.45, 0.7, mat("#8A5A2B"), 1.5, 0.45, 1.5);
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => tube(g, [1.5 + sx * 0.33, 0.65, 1.5 + sz * 0.33], [1.5 + sx * 0.6, 2.7, 1.5 + sz * 0.6], 0.02, black));
+  Cone(g, 0.12, 0.3, 8, lit("#FF9A2A"), 1.5, 1.4, 1.5).rotation.x = Math.PI;
+  tube(g, [1.5, 0.7, 1.5], [1.5, 1.25, 1.5], 0.03, steel);
+  return g;
+});
+reg("airplane", "Passenger plane", 8, 10, 3, false, (c) => {
+  const g = new THREE.Group();
+  const flatz = (o) => ((o.rotation.x = Math.PI / 2), o);
+  flatz(Cyl(g, 0.7, 0.7, 7.2, white, 4, 1.0, 5.0));
+  flatz(Cone(g, 0.7, 1.4, 16, white, 4, 1.0, 9.3));
+  (Cone(g, 0.7, 1.4, 16, white, 4, 1.0, 0.7).rotation.x = -Math.PI / 2);
+  B(g, 8, 0.1, 1.6, white, 4, 0.85, 5.0);
+  [0.15, 7.85].forEach((x) => B(g, 0.3, 0.12, 1.0, mat(c), x, 0.85, 5.0));
+  B(g, 0.1, 1.5, 1.2, mat(c), 4, 1.9, 0.9);
+  B(g, 3.2, 0.08, 0.8, white, 4, 1.15, 0.8);
+  [2.2, 5.8].forEach((x) => flatz(Cyl(g, 0.35, 0.35, 1.2, steel, x, 0.65, 4.8)));
+  for (let z = 2.2; z < 8; z += 0.6) [3.28, 4.72].forEach((x) => Sph(g, 0.07, tintM, x, 1.25, z));
+  B(g, 0.9, 0.3, 0.05, tintM, 4, 1.15, 9.0);
+  [3.3, 4.7].forEach((x) => wheel(g, x, 0.28, 5.6, 0.28, 0.2));
+  wheel(g, 4, 0.28, 8.4, 0.28, 0.2);
+  [3.3, 4.7].forEach((x) => tube(g, [x, 0.3, 5.6], [x, 0.4, 5.6], 0.05, steel));
+  return g;
+});
+reg("rocket", "Rocket", 2, 2, 6, false, (c) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.5, 0.5, 4, mat(c), 1, 3.0, 1);
+  Cone(g, 0.5, 1.4, 16, tailM, 1, 5.7, 1);
+  Cyl(g, 0.5, 0.5, 0.15, white, 1, 4.9, 1);
+  [[0.7, 0], [-0.7, 0], [0, 0.7], [0, -0.7]].forEach(([dx, dz]) =>
+    B(g, dz ? 0.08 : 0.6, 1.2, dz ? 0.6 : 0.08, tailM, 1 + dx, 1.4, 1 + dz)
+  );
+  Cyl(g, 0.3, 0.2, 0.3, steel, 1, 0.85, 1);
+  Cone(g, 0.2, 0.6, 12, lit("#FF9A2A"), 1, 0.4, 1).rotation.x = Math.PI;
+  Sph(g, 0.17, tintM, 1, 3.9, 1.47).scale.set(1, 1, 0.5);
+  Sph(g, 0.17, tintM, 1, 3.0, 1.47).scale.set(1, 1, 0.5);
+  return g;
+});
+reg("submarine", "Submarine", 2, 6, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  Cyl(g, 0.8, 0.8, 3.2, body, 1, 1.0, 3).rotation.x = Math.PI / 2;
+  [1.4, 4.6].forEach((z) => Sph(g, 0.8, body, 1, 1.0, z).scale.set(1, 1, 1.5));
+  B(g, 0.5, 0.6, 1.0, body, 1, 2.05, 3.2);
+  tube(g, [1, 2.3, 3.5], [1, 2.38, 3.5], 0.04, black);
+  [0.2, 1.8].forEach((x) => B(g, 0.6, 0.06, 0.6, body, x, 1.0, 1.0));
+  B(g, 0.06, 0.6, 0.6, body, 1, 1.0, 0.6);
+  [-1, 1].forEach((s) => B(g, 0.08, 0.5, 0.05, steel, 1 + s * 0.2, 1.0, 0.25));
+  [2.2, 3.0, 3.8].forEach((z) => [0.2, 1.8].forEach((x) => Sph(g, 0.12, tintM, x, 1.2, z)));
+  return g;
+});
+reg("canoe", "Canoe", 1, 4, 1, false, (c) => {
+  const g = new THREE.Group();
+  hull(g, 1, 4, 1.0, 0.35, mat(c));
+  B(g, 0.6, 0.05, 0.25, woodM, 0.5, 0.4, 1.8);
+  B(g, 0.6, 0.05, 0.25, woodM, 0.5, 0.4, 2.6);
+  tube(g, [0.2, 0.4, 2.0], [0.8, 0.9, 3.0], 0.03, woodM);
+  B(g, 0.15, 0.02, 0.4, woodM, 0.8, 0.95, 3.1);
+  return g;
+});
+
+/* ----- more street and garden lights (each has Brightness and Light color) ----- */
+regCustom("streetlight2", "Double street light", lightParams, () => ({ w: 3, d: 1, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.2, ironM, 1.5, 0.1, 0.5);
+  Cyl(g, 0.06, 0.1, 4.5, ironM, 1.5, 2.25, 0.5);
+  [-1, 1].forEach((s) => {
+    tube(g, [1.5, 4.4, 0.5], [1.5 + s * 1.1, 4.55, 0.5], 0.04, ironM);
+    B(g, 0.3, 0.1, 0.25, ironM, 1.5 + s * 1.2, 4.55, 0.5);
+    B(g, 0.26, 0.03, 0.2, glowMat(o, c), 1.5 + s * 1.2, 4.48, 0.5);
+  });
+  return g;
+}, pointLight(4.3, 16));
+regCustom("curvedlight", "Curved street light", lightParams, () => ({ w: 1, d: 1, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.2, ironM, 0.2, 0.1, 0.5);
+  Cyl(g, 0.05, 0.09, 3.6, ironM, 0.2, 1.9, 0.5);
+  for (let i = 0; i < 6; i++) {
+    const a0 = Math.PI - (i / 6) * (Math.PI / 2);
+    const a1 = Math.PI - ((i + 1) / 6) * (Math.PI / 2);
+    tube(g, [0.75 + 0.55 * Math.cos(a0), 3.7 + 0.55 * Math.sin(a0), 0.5], [0.75 + 0.55 * Math.cos(a1), 3.7 + 0.55 * Math.sin(a1), 0.5], 0.05, ironM);
+  }
+  B(g, 0.4, 0.07, 0.2, ironM, 0.9, 4.27, 0.5);
+  B(g, 0.36, 0.03, 0.16, glowMat(o, c), 0.9, 4.22, 0.5);
+  return g;
+}, spotLight([0.4, 4.2, 0], [0, -1, 0], 1.0, 14));
+regCustom("solarlight", "Solar street light", lightParams, () => ({ w: 1, d: 1, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.2, ironM, 0.5, 0.1, 0.5);
+  Cyl(g, 0.05, 0.08, 3.7, ironM, 0.5, 1.95, 0.5);
+  B(g, 0.9, 0.05, 0.6, mat("#1F3A6E"), 0.5, 4.05, 0.4).rotation.x = -0.4;
+  tube(g, [0.5, 3.6, 0.5], [0.5, 3.6, 0.85], 0.04, ironM);
+  Cyl(g, 0.1, 0.15, 0.1, glowMat(o, c), 0.5, 3.55, 0.85);
+  return g;
+}, spotLight([0, 3.5, 0.35], [0, -1, 0], 1.0, 12));
+regCustom("bollardlight", "Bollard light", lightParams, () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.22, 0.7, ironM, 0.5, 0.35, 0.5);
+  Cyl(g, 0.205, 0.205, 0.2, glowMat(o, c), 0.5, 0.5, 0.5);
+  Cyl(g, 0.12, 0.2, 0.08, ironM, 0.5, 0.74, 0.5);
+  return g;
+}, pointLight(0.5, 6));
+regCustom("pathlight", "Garden path light", lightParams, () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.03, 0.03, 0.55, ironM, 0.5, 0.28, 0.5);
+  Cyl(g, 0.08, 0.26, 0.16, ironM, 0.5, 0.63, 0.5);
+  Sph(g, 0.1, glowMat(o, c), 0.5, 0.55, 0.5);
+  return g;
+}, pointLight(0.55, 5));
+regCustom("floodlight", "Flood light tower", lightParams, () => ({ w: 1, d: 1, h: 6, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.25, 0.3, 0.2, ironM, 0.5, 0.1, 0.5);
+  Cyl(g, 0.06, 0.1, 6.5, ironM, 0.5, 3.35, 0.5);
+  B(g, 0.9, 0.1, 0.15, ironM, 0.5, 6.6, 0.45);
+  const head = new THREE.Group();
+  head.position.set(0.5, 6.7, 0.5);
+  head.rotation.x = 0.6;
+  [-0.3, 0, 0.3].forEach((x) => {
+    B(head, 0.26, 0.4, 0.08, ironM, x, 0, 0);
+    B(head, 0.22, 0.34, 0.03, glowMat(o, c), x, 0, 0.05);
+  });
+  g.add(head);
+  return g;
+}, spotLight([0, 6.6, 0.3], [0, -0.6, 0.8], 0.9, 22));
+reg("trafficlight", "Traffic light", 1, 1, 4, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.2, ironM, 0.5, 0.1, 0.5);
+  Cyl(g, 0.05, 0.07, 3.1, ironM, 0.5, 1.65, 0.5);
+  B(g, 0.32, 0.95, 0.28, black, 0.5, 3.6, 0.5);
+  [["#FF2A2A", 3.9], ["#FFC21A", 3.6], ["#2AD04A", 3.3]].forEach(([col, y]) => {
+    Sph(g, 0.08, lit(col), 0.5, y, 0.65);
+    B(g, 0.2, 0.04, 0.1, black, 0.5, y + 0.1, 0.68);
+  });
+  return g;
+});
+reg("roadsign", "Road sign", 1, 1, 3, false, (c) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.15, ironM, 0.5, 0.07, 0.5);
+  Cyl(g, 0.04, 0.05, 2.3, steel, 0.5, 1.2, 0.5);
+  B(g, 0.55, 0.55, 0.05, white, 0.5, 2.5, 0.5).rotation.z = Math.PI / 4;
+  B(g, 0.46, 0.46, 0.06, mat(c), 0.5, 2.5, 0.5).rotation.z = Math.PI / 4;
+  B(g, 0.1, 0.3, 0.07, white, 0.5, 2.5, 0.5);
+  return g;
+});
+
+/* ----- bridges and construction ----- */
+regCustom("bridgedeck", "Bridge deck (custom)", [
+  { key: "len", label: "Length", kind: "num", min: 2, max: 12, step: 1, def: 6 },
+  { key: "wid", label: "Width", kind: "num", min: 2, max: 6, step: 1, def: 3 },
+  { key: "kind", label: "Deck", kind: "sel", def: "road", options: [["road", "Road"], ["steel", "Steel"], ["wood", "Wood planks"]] },
+  { key: "rails", label: "Side rails", kind: "tog", def: true },
+], (o) => ({ w: o.len, d: o.wid, h: 1, top: !o.rails }), (c, o) => {
+  const g = new THREE.Group();
+  const { len, wid } = o;
+  const slab = o.kind === "road" ? mat("#6C7078", { roughness: 0.8 }) : o.kind === "steel" ? mat("#7C8794", { metalness: 0.5, roughness: 0.4 }) : woodM;
+  B(g, len - 0.04, 0.4, wid - 0.04, slab, len / 2, 0.2, wid / 2);
+  if (o.kind === "road") for (let x = 0.4; x < len - 0.3; x += 0.9) B(g, 0.5, 0.02, 0.07, white, x + 0.25, 0.41, wid / 2);
+  if (o.kind === "wood") for (let x = 0.5; x < len; x += 0.5) B(g, 0.03, 0.02, wid - 0.1, mat("#7A4E22"), x, 0.41, wid / 2);
+  if (o.rails) {
+    const rail = mat(c);
+    [0.1, wid - 0.1].forEach((z) => {
+      B(g, len - 0.04, 0.07, 0.07, rail, len / 2, 1.05, z);
+      B(g, len - 0.04, 0.05, 0.05, rail, len / 2, 0.7, z);
+      for (let x = 0.1; x <= len - 0.09; x += 1) B(g, 0.07, 0.65, 0.07, rail, x, 0.72, z);
+      if (len - 0.1 - Math.floor(len - 0.1) > 0.01) B(g, 0.07, 0.65, 0.07, rail, len - 0.1, 0.72, z);
+    });
+  }
+  return g;
+});
+regCustom("bridgepier", "Bridge pier (custom)", [
+  { key: "tall", label: "Height", kind: "num", min: 1, max: 8, step: 1, def: 4 },
+  { key: "style", label: "Style", kind: "sel", def: "twin", options: [["twin", "Twin columns"], ["solid", "Solid wall"], ["round", "Round column"]] },
+], (o) => ({ w: 2, d: 2, h: o.tall, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  B(g, 1.9, 0.3, 1.9, concreteM, 1, 0.15, 1);
+  if (o.style === "twin") [0.55, 1.45].forEach((x) => B(g, 0.5, H - 0.7, 0.8, concreteM, x, 0.3 + (H - 0.7) / 2, 1));
+  else if (o.style === "solid") B(g, 1.4, H - 0.7, 0.8, concreteM, 1, 0.3 + (H - 0.7) / 2, 1);
+  else Cyl(g, 0.55, 0.65, H - 0.7, concreteM, 1, 0.3 + (H - 0.7) / 2, 1);
+  B(g, 2, 0.4, 1.4, mat(c), 1, H - 0.2, 1);
+  return g;
+});
+reg("bridgearch", "Arch bridge 8×3", 8, 3, 4, false, (c) => {
+  const g = new THREE.Group();
+  const R = 3.5;
+  B(g, 8, 0.4, 3, concreteM, 4, 4.0, 1.5);
+  B(g, 7.9, 0.02, 2.9, mat("#6C7078"), 4, 4.21, 1.5);
+  [0.4, 2.6].forEach((z) => {
+    add(g, G(THREE.TorusGeometry, R, 0.22, 6, 28, Math.PI), mat(c), 4, 0, z);
+    [1.2, 2.2, 3.2, 4, 4.8, 5.8, 6.8].forEach((x) => {
+      const ya = Math.sqrt(R * R - (x - 4) * (x - 4));
+      tube(g, [x, ya + 0.1, z], [x, 3.8, z], 0.07, concreteM);
+    });
+    B(g, 7.9, 0.07, 0.07, steel, 4, 4.55, z === 0.4 ? 0.1 : 2.9);
+    for (let x = 0.1; x < 8; x += 1) B(g, 0.06, 0.35, 0.06, steel, x, 4.38, z === 0.4 ? 0.1 : 2.9);
+  });
+  [0.3, 7.7].forEach((x) => B(g, 0.6, 3.8, 3, concreteM, x, 1.9, 1.5));
+  return g;
+});
+reg("trussbridge", "Truss bridge 8×3", 8, 3, 3, false, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 8, 0.3, 3, woodM, 4, 0.15, 1.5);
+  [0.1, 2.9].forEach((z) => {
+    B(g, 8, 0.15, 0.15, m, 4, 3.4, z);
+    B(g, 8, 0.15, 0.15, m, 4, 0.37, z);
+    for (let i = 0; i <= 8; i++) B(g, 0.1, 3.0, 0.1, m, i === 0 ? 0.08 : i === 8 ? 7.92 : i, 1.9, z);
+    for (let i = 0; i < 8; i++) tube(g, i % 2 ? [i + 1, 0.4, z] : [i, 0.4, z], i % 2 ? [i, 3.35, z] : [i + 1, 3.35, z], 0.05, m);
+  });
+  for (let x = 1; x < 8; x += 2) B(g, 0.1, 0.1, 3, m, x, 3.4, 1.5);
+  return g;
+});
+reg("suspension", "Suspension bridge 12×3", 12, 3, 6, false, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 12, 0.3, 3, mat("#6C7078", { roughness: 0.8 }), 6, 0.3, 1.5);
+  [1.5, 10.5].forEach((tx) => {
+    [0.3, 2.7].forEach((z) => B(g, 0.3, 6.6, 0.3, m, tx, 3.3, z));
+    [3.2, 4.8, 6.35].forEach((y) => B(g, 0.2, 0.2, 2.7, m, tx, y, 1.5));
+  });
+  [0.3, 2.7].forEach((z) => {
+    tube(g, [0.2, 0.8, z], [1.5, 6.5, z], 0.05, steel);
+    tube(g, [10.5, 6.5, z], [11.8, 0.8, z], 0.05, steel);
+    let prev = null;
+    for (let x = 1.5; x <= 10.51; x += 0.75) {
+      const t = (x - 6) / 4.5;
+      const y = 1.8 + 4.7 * t * t;
+      if (prev) tube(g, prev, [x, y, z], 0.05, steel);
+      if (x > 1.6 && x < 10.4) tube(g, [x, 0.45, z], [x, y, z], 0.015, steel);
+      prev = [x, y, z];
+    }
+  });
+  return g;
+});
+reg("cablestay", "Cable-stayed bridge 10×3", 10, 3, 6, false, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 10, 0.3, 3, mat("#6C7078", { roughness: 0.8 }), 5, 0.3, 1.5);
+  [0.5, 2.5].forEach((z) => tube(g, [5, 0.4, z], [5, 6.6, 1.5], 0.16, m));
+  B(g, 0.3, 0.25, 2.2, m, 5, 3.0, 1.5);
+  [0.5, 2.5].forEach((z) => {
+    for (let i = 0; i < 4; i++) {
+      const y = 6.4 - i * 0.55;
+      tube(g, [5, y, 1.5], [0.8 + i * 1.0, 0.45, z], 0.02, steel);
+      tube(g, [5, y, 1.5], [9.2 - i * 1.0, 0.45, z], 0.02, steel);
+    }
+  });
+  return g;
+});
+regCustom("beam", "Structural beam", [
+  { key: "len", label: "Length", kind: "num", min: 2, max: 16, step: 1, def: 6 },
+  { key: "kind", label: "Type", kind: "sel", def: "ibeam", options: [["ibeam", "Steel I-beam"], ["box", "Box girder"], ["concrete", "Concrete beam"], ["timber", "Timber beam"]] },
+], (o) => ({ w: o.len, d: 1, h: 1, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len - 0.04;
+  const x = o.len / 2;
+  const metal = mat(c, { metalness: 0.45, roughness: 0.4 });
+  if (o.kind === "ibeam") {
+    B(g, L, 0.1, 0.55, metal, x, 0.05, 0.5);
+    B(g, L, 0.1, 0.55, metal, x, 0.95, 0.5);
+    B(g, L, 0.8, 0.1, metal, x, 0.5, 0.5);
+  } else if (o.kind === "box") {
+    B(g, L, 0.95, 0.8, metal, x, 0.475, 0.5);
+    for (let i = 1; i < o.len; i++) B(g, 0.03, 0.9, 0.82, steel, i, 0.475, 0.5);
+  } else if (o.kind === "concrete") {
+    B(g, L, 0.9, 0.7, concreteM, x, 0.45, 0.5);
+    B(g, L, 0.04, 0.72, mat("#8D9197"), x, 0.9, 0.5);
+  } else {
+    B(g, L, 0.9, 0.7, mat("#B07A42"), x, 0.45, 0.5);
+    for (let i = 0; i < o.len; i++) B(g, 0.02, 0.9, 0.72, mat("#8A5A2B"), i + 0.5, 0.45, 0.5);
+  }
+  return g;
+});
+regCustom("column", "Structural column", [
+  { key: "tall", label: "Height", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "kind", label: "Type", kind: "sel", def: "h", options: [["h", "Steel H-column"], ["round", "Round pillar"], ["square", "Concrete column"]] },
+], (o) => ({ w: 1, d: 1, h: o.tall, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const metal = mat(c, { metalness: 0.45, roughness: 0.4 });
+  if (o.kind === "h") {
+    B(g, 0.9, 0.06, 0.9, steel, 0.5, 0.03, 0.5);
+    B(g, 0.1, H - 0.06, 0.5, metal, 0.5, 0.06 + (H - 0.06) / 2, 0.5);
+    [0.27, 0.73].forEach((z) => B(g, 0.5, H - 0.06, 0.08, metal, 0.5, 0.06 + (H - 0.06) / 2, z));
+    B(g, 0.9, 0.06, 0.9, steel, 0.5, H - 0.03, 0.5);
+  } else if (o.kind === "round") {
+    Cyl(g, 0.4, 0.4, 0.15, concreteM, 0.5, 0.075, 0.5);
+    Cyl(g, 0.3, 0.3, H - 0.3, concreteM, 0.5, H / 2, 0.5);
+    Cyl(g, 0.4, 0.4, 0.15, concreteM, 0.5, H - 0.075, 0.5);
+  } else B(g, 0.7, H, 0.7, concreteM, 0.5, H / 2, 0.5);
+  return g;
+});
+regCustom("scaffold", "Scaffolding", [
+  { key: "bays", label: "Bays", kind: "num", min: 1, max: 4, step: 1, def: 2 },
+  { key: "levels", label: "Levels", kind: "num", min: 1, max: 6, step: 1, def: 3 },
+], (o) => ({ w: o.bays * 2, d: 1, h: o.levels, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.levels * BH;
+  const W = o.bays * 2;
+  for (let i = 0; i <= o.bays; i++) [0.1, 0.9].forEach((z) => Cyl(g, 0.04, 0.04, H, steel, Math.min(W - 0.05, Math.max(0.05, i * 2)), H / 2, z));
+  for (let k = 1; k <= o.levels; k++) {
+    const y = k * BH - 0.06;
+    B(g, W - 0.1, 0.05, 0.8, woodM, W / 2, y, 0.5);
+    [0.1, 0.9].forEach((z) => B(g, W - 0.1, 0.05, 0.05, steel, W / 2, y - 0.06, z));
+    if (k < o.levels) for (let i = 0; i < o.bays; i++) tube(g, [i * 2 + 0.1, y, 0.9], [i * 2 + 1.9, y + BH - 0.1, 0.9], 0.02, steel);
+  }
+  return g;
+});
+reg("towercrane", "Tower crane", 8, 3, 9, false, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 1.6, 0.3, 1.6, concreteM, 1.5, 0.15, 1.5);
+  const top = 9.4;
+  [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([sx, sz]) => B(g, 0.07, top - 0.3, 0.07, m, 1.5 + sx * 0.35, 0.3 + (top - 0.3) / 2, 1.5 + sz * 0.35));
+  for (let y = 1.0; y < top; y += 1.2) {
+    [[1.5, 1.15, 0.7, 0.05], [1.5, 1.85, 0.7, 0.05]].forEach(([x, z, w, d]) => B(g, w, d, 0.05, m, x, y, z));
+    [1.15, 1.85].forEach((x) => B(g, 0.05, 0.05, 0.7, m, x, y, 1.5));
+    tube(g, [1.15, y, 1.15], [1.85, y + 1.2, 1.15], 0.025, m);
+    tube(g, [1.85, y, 1.85], [1.15, y + 1.2, 1.85], 0.025, m);
+  }
+  B(g, 1.0, 0.4, 1.0, m, 1.5, top + 0.2, 1.5);
+  B(g, 0.5, 0.5, 0.5, white, 2.1, top + 0.25, 1.5);
+  B(g, 7.2, 0.08, 0.08, m, 4.0, top + 0.75, 1.5);
+  [1.35, 1.65].forEach((z) => B(g, 7.2, 0.08, 0.08, m, 4.0, top + 0.25, z));
+  for (let x = 0.4; x < 7.2; x += 0.8) {
+    tube(g, [x, top + 0.25, 1.35], [x + 0.4, top + 0.75, 1.5], 0.025, m);
+    tube(g, [x + 0.4, top + 0.75, 1.5], [x + 0.8, top + 0.25, 1.65], 0.025, m);
+  }
+  B(g, 0.6, 0.5, 0.6, concreteM, 0.45, top + 0.2, 1.5);
+  tube(g, [1.5, top + 0.4, 1.5], [0.45, top + 0.2, 1.5], 0.03, steel);
+  B(g, 0.35, 0.18, 0.3, black, 6.0, top + 0.1, 1.5);
+  tube(g, [6.0, top, 1.5], [6.0, 7.2, 1.5], 0.015, black);
+  Sph(g, 0.1, steel, 6.0, 7.1, 1.5);
+  B(g, 0.5, 0.3, 0.5, orangeM, 6.0, 6.9, 1.5);
+  return g;
+});
+reg("trafficcone", "Traffic cone", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  B(g, 0.62, 0.05, 0.62, black, 0.5, 0.025, 0.5);
+  Cone(g, 0.26, 0.9, 16, orangeM, 0.5, 0.5, 0.5);
+  Cyl(g, 0.15, 0.19, 0.15, white, 0.5, 0.5, 0.5);
+  return g;
+});
+reg("roadbarrier", "Road barrier", 2, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  [0.2, 1.8].forEach((x) => B(g, 0.1, 1.0, 0.5, black, x, 0.5, 0.5));
+  for (let i = 0; i < 8; i++) B(g, 0.2, 0.22, 0.06, i % 2 ? white : mat(c), 0.2 + i * 0.228, 0.88, 0.5);
+  for (let i = 0; i < 8; i++) B(g, 0.2, 0.22, 0.06, i % 2 ? mat(c) : white, 0.2 + i * 0.228, 0.58, 0.5);
+  return g;
+});
+
+/* ----- flowering plants ----- */
+const stemM = mat("#3E8E41");
+const soilM = mat("#4A3222");
+const yellowF = mat("#FFD23F");
+// a flat flower: ring of petals around a centre
+function bloom(g, x, y, z, r, col, centre = yellowF, n = 6) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    Sph(g, r * 0.5, mat(col), x + Math.cos(a) * r * 0.62, y, z + Math.sin(a) * r * 0.62).scale.set(1, 0.45, 1);
+  }
+  Sph(g, r * 0.4, centre, x, y + r * 0.08, z);
+}
+const stem = (g, x, z, h, m = stemM) => Cyl(g, 0.018, 0.022, h, m, x, 0.14 + h / 2, z);
+
+reg("rose", "Rose bush", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  [[0.35, 0.3, 0.5], [0.65, 0.32, 0.45], [0.5, 0.5, 0.55], [0.5, 0.28, 0.7], [0.45, 0.3, 0.3]].forEach(([x, y, z]) => Sph(g, 0.24, leafA, x, y, z));
+  [[0.3, 0.55, 0.65], [0.68, 0.52, 0.55], [0.5, 0.78, 0.5], [0.4, 0.5, 0.25], [0.7, 0.45, 0.3], [0.55, 0.62, 0.8]].forEach(([x, y, z]) => {
+    Sph(g, 0.1, mat(c), x, y, z);
+    Sph(g, 0.06, mat(shade(c, 0.7)), x, y + 0.05, z);
+  });
+  return g;
+});
+reg("tulips", "Tulip bed", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.92, 0.14, 0.92, soilM, 0.5, 0.07, 0.5);
+  [[0.25, 0.25], [0.5, 0.2], [0.75, 0.28], [0.3, 0.55], [0.6, 0.55], [0.8, 0.75], [0.35, 0.8], [0.55, 0.82]].forEach(([x, z], i) => {
+    stem(g, x, z, 0.4 + (i % 3) * 0.06);
+    Sph(g, 0.09, mat(i % 3 === 2 ? "#FFD23F" : c), x, 0.64 + (i % 3) * 0.06, z).scale.set(1, 1.35, 1);
+    B(g, 0.04, 0.2, 0.1, leafA, x + 0.06, 0.3, z).rotation.z = -0.3;
+  });
+  return g;
+});
+reg("lavender", "Lavender", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.92, 0.12, 0.92, soilM, 0.5, 0.06, 0.5);
+  for (let i = 0; i < 9; i++) {
+    const x = 0.15 + rnd(i) * 0.7;
+    const z = 0.15 + rnd(i + 20) * 0.7;
+    stem(g, x, z, 0.55);
+    Cyl(g, 0.045, 0.03, 0.22, mat(c), x, 0.83, z);
+  }
+  return g;
+});
+reg("daisies", "Daisy patch", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  B(g, 0.92, 0.1, 0.92, mat("#3F8F3F"), 0.5, 0.05, 0.5);
+  [[0.25, 0.25], [0.7, 0.3], [0.45, 0.55], [0.75, 0.75], [0.25, 0.75]].forEach(([x, z], i) => {
+    stem(g, x, z, 0.3 + (i % 2) * 0.1);
+    bloom(g, x, 0.48 + (i % 2) * 0.1, z, 0.16, "#FFFFFF", yellowF, 8);
+  });
+  return g;
+});
+reg("orchid", "Orchid pot", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.22, 0.17, 0.3, mat("#F4F4F4"), 0.5, 0.15, 0.5);
+  [-1, 0, 1].forEach((d) => B(g, 0.08, 0.04, 0.4, leafA, 0.5 + d * 0.13, 0.36, 0.5 + d * 0.05).rotation.x = -0.4);
+  tube(g, [0.5, 0.3, 0.5], [0.55, 0.75, 0.5], 0.015, stemM);
+  tube(g, [0.55, 0.75, 0.5], [0.72, 0.95, 0.5], 0.015, stemM);
+  [[0.58, 0.72], [0.64, 0.82], [0.72, 0.94]].forEach(([x, y]) => {
+    bloom(g, x, y, 0.5, 0.11, c, white, 5);
+    Sph(g, 0.03, mat(shade(c, 0.6)), x, y + 0.02, 0.5);
+  });
+  return g;
+});
+reg("hibiscus", "Hibiscus", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  [[0.4, 0.35, 0.5], [0.62, 0.4, 0.45], [0.5, 0.62, 0.55], [0.5, 0.35, 0.7]].forEach(([x, y, z]) => Sph(g, 0.26, leafA, x, y, z));
+  [[0.3, 0.55, 0.78], [0.7, 0.62, 0.7], [0.5, 0.95, 0.5], [0.35, 0.8, 0.3]].forEach(([x, y, z]) => {
+    bloom(g, x, y, z, 0.15, c, mat("#FFD23F"), 5);
+    Cyl(g, 0.012, 0.012, 0.16, mat("#F2CD37"), x, y + 0.08, z);
+  });
+  return g;
+});
+reg("marigold", "Marigold bed", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.92, 0.14, 0.92, soilM, 0.5, 0.07, 0.5);
+  for (let i = 0; i < 12; i++) {
+    const x = 0.15 + rnd(i * 3) * 0.7;
+    const z = 0.15 + rnd(i * 3 + 1) * 0.7;
+    Sph(g, 0.1, mat(i % 3 ? "#F28C28" : c), x, 0.3 + rnd(i + 5) * 0.12, z);
+  }
+  [[0.3, 0.3], [0.7, 0.4], [0.5, 0.7]].forEach(([x, z]) => Sph(g, 0.2, leafA, x, 0.22, z).scale.set(1, 0.6, 1));
+  return g;
+});
+reg("lotus", "Lotus pond 2×2", 2, 2, 0.5, false, (c) => {
+  const g = waterBody(2, 2)();
+  [[0.6, 0.7], [1.3, 0.6], [1.4, 1.4], [0.7, 1.4]].forEach(([x, z]) => Cyl(g, 0.28, 0.28, 0.03, leafB, x, 0.32, z));
+  [[1.0, 1.0], [1.4, 0.55]].forEach(([x, z], k) => {
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const p = Sph(g, 0.1, mat(k ? "#FFFFFF" : c), x + Math.cos(a) * 0.1, 0.45, z + Math.sin(a) * 0.1);
+      p.scale.set(0.8, 1.7, 0.8);
+      p.rotation.set(Math.sin(a) * 0.6, 0, -Math.cos(a) * 0.6);
+    }
+    Sph(g, 0.06, yellowF, x, 0.45, z);
+  });
+  return g;
+});
+reg("bougainvillea", "Bougainvillea trellis", 2, 1, 3, false, (c) => {
+  const g = new THREE.Group();
+  [0.1, 1.9].forEach((x) => B(g, 0.1, 3.4, 0.12, woodM, x, 1.7, 0.5));
+  for (let y = 0.5; y < 3.3; y += 0.7) B(g, 1.9, 0.06, 0.1, woodM, 1, y, 0.5);
+  for (let i = 0; i < 18; i++) Sph(g, 0.16, leafA, 0.2 + rnd(i) * 1.6, 0.4 + rnd(i + 30) * 2.9, 0.4 + rnd(i + 60) * 0.2);
+  for (let i = 0; i < 34; i++) Sph(g, 0.08, mat(i % 5 ? c : shade(c, 0.8)), 0.15 + rnd(i + 90) * 1.7, 0.4 + rnd(i + 120) * 2.9, 0.3 + rnd(i + 150) * 0.4);
+  return g;
+});
+reg("hangbasket", "Hanging flower basket", 1, 1, 3, false, (c) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.25, 0.15, ironM, 0.5, 0.07, 0.5);
+  Cyl(g, 0.04, 0.06, 3.0, ironM, 0.25, 1.6, 0.5);
+  tube(g, [0.25, 3.0, 0.5], [0.7, 3.0, 0.5], 0.035, ironM);
+  [[0.7, 3.0]].forEach(([x, y]) => {
+    tube(g, [x, y, 0.5], [x - 0.2, y - 0.4, 0.5], 0.01, black);
+    tube(g, [x, y, 0.5], [x + 0.2, y - 0.4, 0.5], 0.01, black);
+    Sph(g, 0.24, mat("#7A5230"), x, y - 0.5, 0.5).scale.set(1, 0.6, 1);
+    for (let i = 0; i < 8; i++) Sph(g, 0.09, mat(i % 3 ? c : "#FFD23F"), x - 0.2 + rnd(i) * 0.4, y - 0.36 + rnd(i + 7) * 0.08, 0.3 + rnd(i + 14) * 0.4);
+    [-0.15, 0.1].forEach((dx) => tube(g, [x + dx, y - 0.55, 0.5], [x + dx, y - 0.95, 0.5], 0.015, leafA));
+  });
+  return g;
+});
+reg("flowergarden", "Flower garden 2×2", 2, 2, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 1.92, 0.18, 1.92, soilM, 1, 0.09, 1);
+  const cols = [c, "#FFD23F", "#F7B6CD", "#FFFFFF", "#C86BFA"];
+  for (let i = 0; i < 24; i++) {
+    const x = 0.2 + rnd(i * 2) * 1.6;
+    const z = 0.2 + rnd(i * 2 + 1) * 1.6;
+    const h = 0.25 + rnd(i + 40) * 0.35;
+    Cyl(g, 0.016, 0.02, h, stemM, x, 0.18 + h / 2, z);
+    bloom(g, x, 0.2 + h, z, 0.1, cols[i % cols.length], yellowF, 5);
+  }
+  return g;
+});
+reg("meadow", "Wildflower meadow 2×2", 2, 2, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 1.96, 0.1, 1.96, mat("#4C9A45"), 1, 0.05, 1);
+  const cols = [c, "#FFD23F", "#FFFFFF", "#F28C28", "#C86BFA", "#F7B6CD"];
+  for (let i = 0; i < 20; i++) {
+    const x = 0.12 + rnd(i * 5) * 1.76;
+    const z = 0.12 + rnd(i * 5 + 2) * 1.76;
+    B(g, 0.05, 0.3 + rnd(i) * 0.2, 0.05, leafB, x, 0.25, z).rotation.z = (rnd(i + 9) - 0.5) * 0.4;
+  }
+  for (let i = 0; i < 28; i++) {
+    const x = 0.12 + rnd(i * 7 + 1) * 1.76;
+    const z = 0.12 + rnd(i * 7 + 3) * 1.76;
+    const h = 0.3 + rnd(i + 70) * 0.4;
+    Cyl(g, 0.012, 0.015, h, stemM, x, 0.1 + h / 2, z);
+    Sph(g, 0.06, mat(cols[i % cols.length]), x, 0.1 + h, z);
+  }
+  return g;
+});
+reg("planter", "Flower planter", 2, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 1.9, 0.5, 0.8, woodM, 1, 0.25, 0.5);
+  B(g, 1.7, 0.06, 0.6, soilM, 1, 0.5, 0.5);
+  for (let i = 0; i < 6; i++) Sph(g, 0.2, leafA, 0.3 + i * 0.28, 0.6, 0.5).scale.set(1, 0.7, 1);
+  for (let i = 0; i < 10; i++) Sph(g, 0.09, mat(i % 3 ? c : "#FFD23F"), 0.2 + (i % 5) * 0.4 + (i > 4 ? 0.15 : 0), 0.78 + (i % 2) * 0.08, 0.35 + (i > 4 ? 0.3 : 0));
+  return g;
+});
+
+/* ----- more trees ----- */
+const trunkLight = mat("#EDEAE2");
+reg("birch", "Birch tree", 2, 2, 3, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.1, 0.13, 2.0, trunkLight, 1, 1.0, 1);
+  [0.5, 0.9, 1.3, 1.7].forEach((y) => B(g, 0.22, 0.04, 0.05, black, 1, y, 1.1).rotation.y = y);
+  const lf = mat("#8CC25A");
+  Sph(g, 0.75, lf, 1, 2.5, 1);
+  Sph(g, 0.5, mat("#A5D36F"), 0.6, 2.2, 1.2);
+  Sph(g, 0.5, mat("#7DB04B"), 1.4, 2.3, 0.8);
+  return g;
+});
+reg("willow", "Weeping willow", 3, 3, 3, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.16, 0.24, 1.8, bark, 1.5, 0.9, 1.5);
+  Sph(g, 1.0, mat("#7FB069"), 1.5, 2.45, 1.5);
+  const strand = mat("#6FA25A");
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const r = 0.9 + (i % 2) * 0.2;
+    tube(g, [1.5 + Math.cos(a) * r, 2.5, 1.5 + Math.sin(a) * r], [1.5 + Math.cos(a) * (r + 0.2), 0.75 + (i % 3) * 0.2, 1.5 + Math.sin(a) * (r + 0.2)], 0.04, strand);
+  }
+  return g;
+});
+reg("maple", "Maple tree (autumn)", 2, 2, 3, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.17, 0.24, 1.5, bark, 1, 0.75, 1);
+  Sph(g, 0.9, mat("#D2691E"), 1, 2.4, 1);
+  Sph(g, 0.58, mat("#C0392B"), 0.55, 2.0, 1.1);
+  Sph(g, 0.6, mat("#E8A33D"), 1.45, 2.1, 0.85);
+  Sph(g, 0.5, mat("#C0392B"), 1.0, 3.0, 0.9);
+  return g;
+});
+reg("cherry", "Cherry blossom tree", 3, 3, 3, false, () => {
+  const g = new THREE.Group();
+  const dark = mat("#5A3A2A");
+  Cyl(g, 0.14, 0.22, 1.4, dark, 1.5, 0.7, 1.5);
+  tube(g, [1.5, 1.2, 1.5], [0.8, 2.0, 1.5], 0.08, dark);
+  tube(g, [1.5, 1.2, 1.5], [2.2, 2.0, 1.4], 0.08, dark);
+  [[1.5, 2.55, 1.5, 0.8, "#F7B6CD"], [0.8, 2.2, 1.5, 0.6, "#F29BB8"], [2.2, 2.2, 1.4, 0.6, "#F7B6CD"], [1.5, 2.1, 0.8, 0.5, "#FAD0DF"], [1.4, 2.1, 2.2, 0.5, "#F29BB8"]].forEach(([x, y, z, r, col]) => Sph(g, r, mat(col), x, y, z));
+  for (let i = 0; i < 10; i++) Sph(g, 0.05, mat("#F7B6CD"), 0.4 + rnd(i) * 2.2, 0.04, 0.4 + rnd(i + 11) * 2.2).scale.set(1, 0.3, 1);
+  return g;
+});
+reg("banyan", "Banyan tree", 4, 4, 4, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.4, 0.55, 2.4, bark, 2, 1.2, 2);
+  [[-0.9, -0.5], [0.9, -0.4], [-0.5, 0.9], [0.6, 0.9]].forEach(([dx, dz], i) => tube(g, [2 + dx * 1.2, 3.0, 2 + dz * 1.2], [2 + dx * 1.2, 0.05, 2 + dz * 1.2], 0.05 + (i % 2) * 0.02, bark));
+  [[2, 3.4, 2, 1.0], [1.2, 3.1, 1.3, 0.9], [2.8, 3.1, 1.3, 0.9], [1.2, 3.1, 2.8, 0.9], [2.8, 3.1, 2.8, 0.9]].forEach(([x, y, z, r], i) => Sph(g, r, i % 2 ? leafB : leafA, x, y, z));
+  return g;
+});
+reg("mango", "Mango tree", 3, 3, 3, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.2, 0.3, 1.4, bark, 1.5, 0.7, 1.5);
+  [[1.5, 2.3, 1.5, 1.0], [0.8, 2.0, 1.2, 0.7], [2.2, 2.0, 1.7, 0.7]].forEach(([x, y, z, r]) => Sph(g, r, mat("#2B6B2F"), x, y, z));
+  [[0.8, 1.5, 0.5], [2.2, 1.6, 1.9], [1.5, 1.4, 0.5], [1.9, 1.5, 2.2], [1.0, 1.4, 2.2]].forEach(([x, y, z]) => Sph(g, 0.1, mat("#E8A33D"), x, y, z).scale.set(1, 1.3, 1));
+  return g;
+});
+reg("coconut", "Coconut tree", 3, 3, 5, false, () => {
+  const g = new THREE.Group();
+  const trunk = mat("#8B6B43");
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6;
+    Cyl(g, 0.11 - t * 0.03, 0.13 - t * 0.03, 0.85, trunk, 1.2 + t * t * 0.7, 0.42 + i * 0.78, 1.5).rotation.z = -t * 0.35;
+  }
+  const hx = 1.2 + 0.7;
+  for (let k = 0; k < 8; k++) {
+    const a = (k * Math.PI) / 4;
+    const f = Sph(g, 0.6, leafB, hx + Math.cos(a) * 0.55, 5.15 - (k % 2) * 0.1, 1.5 + Math.sin(a) * 0.55);
+    f.scale.set(1, 0.1, 0.45);
+    f.rotation.order = "YZX";
+    f.rotation.set(0, -a, -0.35);
+  }
+  [[0.1, 0.1], [-0.1, 0.12], [0.02, -0.12]].forEach(([dx, dz]) => Sph(g, 0.12, mat("#5A3F22"), hx + dx, 4.95, 1.5 + dz));
+  return g;
+});
+reg("bamboo", "Bamboo clump", 2, 2, 4, false, () => {
+  const g = new THREE.Group();
+  for (let s = 0; s < 6; s++) {
+    const x = 0.5 + rnd(s) * 1.0;
+    const z = 0.5 + rnd(s + 9) * 1.0;
+    const hh = 3.4 + rnd(s + 4) * 1.1;
+    for (let k = 0; k * 0.75 < hh; k++) Cyl(g, 0.055, 0.06, Math.min(0.72, hh - k * 0.75), mat(k % 2 ? "#6E9A31" : "#7DA83A"), x, k * 0.75 + Math.min(0.72, hh - k * 0.75) / 2, z);
+    for (let j = 0; j < 3; j++) Sph(g, 0.22, leafB, x + (j - 1) * 0.18, hh - 0.15 - j * 0.3, z).scale.set(1.2, 0.35, 0.5);
+  }
+  return g;
+});
+reg("baobab", "Baobab tree", 3, 3, 4, false, () => {
+  const g = new THREE.Group();
+  const trunk = mat("#8E7455");
+  Cyl(g, 0.75, 1.0, 2.8, trunk, 1.5, 1.4, 1.5);
+  [[-0.5, 0], [0.5, 0.3], [0, -0.5], [0.1, 0.5]].forEach(([dx, dz]) => tube(g, [1.5 + dx * 0.3, 2.7, 1.5 + dz * 0.3], [1.5 + dx * 1.4, 3.7, 1.5 + dz * 1.4], 0.12, trunk));
+  [[-0.7, 0], [0.7, 0.4], [0, -0.7], [0.1, 0.7], [0, 0]].forEach(([dx, dz]) => Sph(g, 0.42, leafA, 1.5 + dx * 1.2, 3.9, 1.5 + dz * 1.2));
+  return g;
+});
+reg("cypress", "Cypress tree", 1, 1, 4, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.06, 0.08, 0.8, bark, 0.5, 0.4, 0.5);
+  Sph(g, 0.34, mat("#1F5F34"), 0.5, 2.6, 0.5).scale.set(1, 4.3, 1);
+  return g;
+});
+reg("appletree", "Apple tree", 2, 2, 3, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.17, 0.24, 1.4, bark, 1, 0.7, 1);
+  Sph(g, 0.9, leafA, 1, 2.3, 1);
+  Sph(g, 0.55, leafB, 0.55, 2.0, 1.1);
+  Sph(g, 0.55, leafB, 1.45, 2.05, 0.85);
+  [[0.5, 1.8, 1.6], [1.5, 1.9, 1.6], [1.1, 1.6, 0.4], [0.6, 2.4, 0.5], [1.5, 2.5, 1.3], [1.0, 3.0, 1.5]].forEach(([x, y, z]) => Sph(g, 0.1, tailM, x, y, z));
+  return g;
+});
+reg("deadtree", "Bare dead tree", 2, 2, 3, false, () => {
+  const g = new THREE.Group();
+  const w = mat("#5B4B3E");
+  Cyl(g, 0.1, 0.2, 2.0, w, 1, 1.0, 1);
+  [[0.5, 0.5, 2.9, 1], [1.6, 0.4, 2.8, 1.2], [1.0, 0.1, 2.2, 0.4], [0.7, 0.7, 2.3, 1.5]].forEach(([x, , y, z]) => tube(g, [1, y - 0.6, 1], [x, y + 0.1, z], 0.05, w));
+  tube(g, [0.5, 2.9, 1], [0.3, 3.3, 1], 0.025, w);
+  tube(g, [1.6, 2.8, 1.2], [1.8, 3.3, 1.3], 0.025, w);
+  return g;
+});
+reg("xmas", "Christmas tree", 2, 2, 4, false, () => {
+  const g = new THREE.Group();
+  const pine = mat("#1F5F34");
+  Cyl(g, 0.12, 0.16, 0.5, bark, 1, 0.25, 1);
+  [[0.9, 1.4, 1.0], [0.7, 1.2, 1.9], [0.5, 1.0, 2.7], [0.32, 0.8, 3.4]].forEach(([r, h, y]) => Cone(g, r, h, 10, pine, 1, y, 1));
+  Cone(g, 0.18, 0.3, 5, lit("#FFD23F"), 1, 4.2, 1);
+  const cols = ["#D01012", "#0055BF", "#FFD23F", "#FFFFFF"];
+  for (let i = 0; i < 14; i++) {
+    const t = i / 14;
+    const y = 1.0 + t * 2.7;
+    const r = 0.75 - t * 0.55;
+    const a = i * 2.4;
+    Sph(g, 0.06, i % 3 === 0 ? lit(cols[i % 4]) : mat(cols[i % 4]), 1 + Math.cos(a) * r, y, 1 + Math.sin(a) * r);
+  }
+  return g;
+});
+reg("bigpine", "Tall pine tree", 3, 3, 6, false, () => {
+  const g = new THREE.Group();
+  const pine = mat("#1B5430");
+  Cyl(g, 0.16, 0.22, 1.2, bark, 1.5, 0.6, 1.5);
+  [[1.3, 1.6, 1.4], [1.1, 1.5, 2.3], [0.9, 1.4, 3.2], [0.7, 1.3, 4.1], [0.5, 1.2, 4.9], [0.3, 1.0, 5.6]].forEach(([r, h, y]) => Cone(g, r, h, 10, pine, 1.5, y, 1.5));
+  return g;
+});
+reg("snowpine", "Snowy pine tree", 2, 2, 3, false, () => {
+  const g = new THREE.Group();
+  const pine = mat("#1F5F34");
+  const snow = mat("#F4F8FB");
+  Cyl(g, 0.12, 0.16, 0.9, bark, 1, 0.45, 1);
+  [[0.9, 1.5, 1.45], [0.7, 1.3, 2.15], [0.5, 1.1, 2.75]].forEach(([r, h, y]) => {
+    Cone(g, r, h, 8, pine, 1, y, 1);
+    Cone(g, r * 0.8, h * 0.5, 8, snow, 1, y + h * 0.27, 1);
+  });
+  return g;
+});
+reg("acacia", "Acacia tree", 4, 4, 3, false, () => {
+  const g = new THREE.Group();
+  const trunk = mat("#7B5A38");
+  tube(g, [2, 0.1, 2], [1.8, 1.5, 2], 0.2, trunk);
+  tube(g, [1.8, 1.5, 2], [1.0, 2.3, 1.7], 0.1, trunk);
+  tube(g, [1.8, 1.5, 2], [2.8, 2.4, 2.2], 0.1, trunk);
+  Sph(g, 1.7, mat("#7C9A3A"), 2, 2.85, 2).scale.set(1, 0.28, 1);
+  Sph(g, 0.9, mat("#8DAA45"), 1.0, 2.6, 1.7).scale.set(1, 0.3, 1);
+  return g;
+});
+
+/* ----- animals (head toward +z) ----- */
+// a four-legged body with neck, head, ears and tail; returns key positions so each animal can add its own details
+function quad(g, p) {
+  const { cx = 0.5, z0, L, W, H, legH, col, dark = col, legT = 0.13, neckLen = 0.2, neckRise = 0.15, head = 0.32, snout = 0.2, snoutCol, tail = 0.35, tailCol } = p;
+  const m = mat(col);
+  const dm = mat(dark);
+  const top = legH + H;
+  [[-1, 0.12], [1, 0.12], [-1, 0.88], [1, 0.88]].forEach(([s, f]) => B(g, legT, legH + 0.04, legT, dm, cx + s * (W / 2 - legT / 2), (legH + 0.04) / 2, z0 + L * f));
+  B(g, W, H, L, m, cx, legH + H / 2, z0 + L / 2);
+  const hy = top - head * 0.3 + neckRise;
+  const hz = z0 + L + neckLen + head * 0.35;
+  tube(g, [cx, top - H * 0.3, z0 + L - 0.12], [cx, hy, hz - head * 0.2], Math.min(W, head) * 0.4, m);
+  B(g, head, head, head * 1.1, m, cx, hy, hz);
+  const sz = hz + head * 0.55 + snout / 2 - 0.03;
+  B(g, head * 0.7, head * 0.6, snout, mat(snoutCol || col), cx, hy - head * 0.18, sz);
+  [-1, 1].forEach((s) => {
+    Sph(g, head * 0.1, black, cx + s * head * 0.3, hy + head * 0.15, hz + head * 0.5);
+    B(g, head * 0.25, head * 0.4, head * 0.15, dm, cx + s * head * 0.38, hy + head * 0.55, hz - head * 0.15);
+  });
+  tube(g, [cx, top - 0.1, z0 + 0.1], [cx, top - 0.1 - tail, z0 + 0.03], 0.03, mat(tailCol || dark));
+  return { top, hy, hz, sz, cx, z0, L, W, H, legH, head, m, dm };
+}
+const stripesAcross = (g, q, col, z1, z2, step, hgt) => {
+  const m = mat(col);
+  for (let z = z1; z < z2; z += step) B(g, q.W + 0.02, hgt || q.H + 0.02, step * 0.4, m, q.cx, q.legH + q.H / 2, z);
+};
+
+reg("horse", "Horse", 1, 3, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.5, W: 0.45, H: 0.55, legH: 0.95, col: "#8B5A2B", dark: "#3A2412", neckLen: 0.15, neckRise: 0.45, head: 0.28, snout: 0.3, legT: 0.11, tail: 0.8 });
+  B(g, 0.08, 0.6, 0.45, mat("#3A2412"), q.cx, q.hy - 0.15, q.hz - 0.45).rotation.x = 0.5;
+  return g;
+});
+reg("zebraanimal", "Zebra", 1, 3, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.5, W: 0.45, H: 0.55, legH: 0.95, col: "#F4F4F4", dark: "#1B1B1B", neckLen: 0.15, neckRise: 0.45, head: 0.28, snout: 0.3, legT: 0.11, tail: 0.8 });
+  stripesAcross(g, q, "#1B1B1B", 0.5, 1.85, 0.2);
+  B(g, 0.08, 0.6, 0.45, black, q.cx, q.hy - 0.15, q.hz - 0.45).rotation.x = 0.5;
+  return g;
+});
+reg("cow", "Cow", 1, 3, 2, false, (c) => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.3, W: 0.7, H: 0.65, legH: 0.55, col: "#F4F4F4", dark: "#2A2A2A", neckLen: 0.1, neckRise: 0, head: 0.38, snout: 0.22, snoutCol: "#F4B6B6", legT: 0.12, tail: 0.6 });
+  const spot = mat(c);
+  B(g, 0.72, 0.3, 0.4, spot, q.cx, 1.0, 0.75);
+  B(g, 0.72, 0.35, 0.3, spot, q.cx, 0.95, 1.3);
+  B(g, 0.3, 0.15, 0.25, mat("#F4B6B6"), q.cx, 0.5, 0.65);
+  [-1, 1].forEach((s) => Cone(g, 0.04, 0.16, 6, white, q.cx + s * 0.2, q.hy + 0.28, q.hz - 0.05));
+  return g;
+});
+reg("sheep", "Sheep", 1, 2, 1, false, () => {
+  const g = new THREE.Group();
+  const wool = mat("#F1EFE8");
+  const dk = mat("#3A3A3A");
+  [[0.35, 0.55], [0.65, 0.55], [0.35, 1.05], [0.65, 1.05]].forEach(([x, z]) => B(g, 0.1, 0.35, 0.1, dk, x, 0.18, z));
+  Sph(g, 0.38, wool, 0.5, 0.65, 0.8).scale.set(0.95, 0.85, 1.25);
+  [[0.3, 0.9, 0.5], [0.7, 0.9, 0.55], [0.5, 1.0, 0.85], [0.3, 0.85, 1.1], [0.7, 0.85, 1.05]].forEach(([x, y, z]) => Sph(g, 0.2, wool, x, y - 0.2, z));
+  B(g, 0.22, 0.24, 0.3, dk, 0.5, 0.78, 1.5);
+  [-1, 1].forEach((s) => {
+    B(g, 0.12, 0.06, 0.1, dk, 0.5 + s * 0.16, 0.88, 1.42).rotation.z = s * 0.4;
+    Sph(g, 0.03, white, 0.5 + s * 0.07, 0.82, 1.64);
+  });
+  return g;
+});
+reg("pig", "Pig", 1, 2, 1, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 0.95, W: 0.55, H: 0.45, legH: 0.28, col: "#F2A5B5", dark: "#E58FA3", neckLen: 0.02, neckRise: 0, head: 0.36, snout: 0.12, snoutCol: "#E58FA3", legT: 0.12, tail: 0.1 });
+  add(g, G(THREE.TorusGeometry, 0.05, 0.015, 6, 10), mat("#E58FA3"), q.cx, 0.62, 0.3);
+  return g;
+});
+reg("goat", "Goat", 1, 2, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.0, W: 0.38, H: 0.45, legH: 0.6, col: "#D9D2C5", dark: "#8A7A66", neckLen: 0.15, neckRise: 0.2, head: 0.26, snout: 0.2, legT: 0.09, tail: 0.15 });
+  [-1, 1].forEach((s) => tube(g, [q.cx + s * 0.07, q.hy + 0.13, q.hz - 0.05], [q.cx + s * 0.09, q.hy + 0.5, q.hz - 0.3], 0.025, mat("#6B5A45")));
+  Cone(g, 0.05, 0.16, 5, mat("#6B5A45"), q.cx, q.hy - 0.3, q.hz + 0.25).rotation.x = Math.PI;
+  return g;
+});
+reg("deer", "Deer", 1, 3, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.1, W: 0.34, H: 0.45, legH: 0.8, col: "#B07A4A", dark: "#8A5A33", neckLen: 0.2, neckRise: 0.5, head: 0.24, snout: 0.22, legT: 0.09, tail: 0.12 });
+  const ant = mat("#D9C7A0");
+  [-1, 1].forEach((s) => {
+    tube(g, [q.cx + s * 0.06, q.hy + 0.12, q.hz - 0.1], [q.cx + s * 0.18, q.hy + 0.55, q.hz - 0.2], 0.02, ant);
+    tube(g, [q.cx + s * 0.12, q.hy + 0.33, q.hz - 0.15], [q.cx + s * 0.1, q.hy + 0.55, q.hz + 0.05], 0.015, ant);
+  });
+  B(g, 0.36, 0.1, 0.9, white, q.cx, q.legH + 0.08, 0.9);
+  for (let i = 0; i < 6; i++) Sph(g, 0.04, white, q.cx + (rnd(i) - 0.5) * 0.25, q.top + 0.01, 0.55 + i * 0.17);
+  return g;
+});
+reg("lion", "Lion", 1, 3, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.1, W: 0.4, H: 0.45, legH: 0.35, col: "#D7A24B", dark: "#B9812F", neckLen: 0.1, neckRise: 0.1, head: 0.32, snout: 0.15, snoutCol: "#E8C58A", legT: 0.12, tail: 0.1 });
+  Sph(g, 0.32, mat("#7A4B1E"), q.cx, q.hy, q.hz - 0.1).scale.set(1, 1, 0.8);
+  tube(g, [q.cx, q.legH + q.H - 0.1, 0.4], [q.cx, 0.25, 0.1], 0.03, mat("#B9812F"));
+  Sph(g, 0.07, mat("#7A4B1E"), q.cx, 0.22, 0.1);
+  return g;
+});
+reg("tiger", "Tiger", 1, 3, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.1, W: 0.4, H: 0.45, legH: 0.35, col: "#E8892B", dark: "#C96E1A", neckLen: 0.1, neckRise: 0.05, head: 0.32, snout: 0.15, snoutCol: "#F4E4C8", legT: 0.12, tail: 0.4 });
+  stripesAcross(g, q, "#1B1B1B", 0.45, 1.4, 0.2, 0.4);
+  B(g, 0.3, 0.1, 0.8, mat("#F4E4C8"), q.cx, q.legH + 0.03, 0.9);
+  return g;
+});
+reg("bear", "Bear", 2, 3, 2, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { cx: 1, z0: 0.4, L: 1.3, W: 0.85, H: 0.8, legH: 0.4, col: "#6B4A2F", dark: "#5A3C25", neckLen: 0, neckRise: 0, head: 0.5, snout: 0.22, snoutCol: "#C9A57A", legT: 0.3, tail: 0.05 });
+  Sph(g, 0.06, black, q.cx, q.hy - 0.15, q.sz + 0.1);
+  return g;
+});
+reg("panda", "Panda", 1, 2, 1, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 0.9, W: 0.6, H: 0.6, legH: 0.3, col: "#F4F4F4", dark: "#1B1B1B", neckLen: 0, neckRise: 0, head: 0.45, snout: 0.1, legT: 0.2, tail: 0.05, tailCol: "#F4F4F4" });
+  B(g, 0.62, 0.62, 0.3, black, q.cx, q.legH + q.H / 2, 0.8);
+  [-1, 1].forEach((s) => B(g, 0.1, 0.12, 0.04, black, q.cx + s * 0.12, q.hy + 0.06, q.hz + 0.5 * 0.45));
+  return g;
+});
+reg("elephant", "Elephant", 3, 5, 4, false, () => {
+  const g = new THREE.Group();
+  const gray = mat("#8E949B");
+  const dgray = mat("#7A8087");
+  [[-1, 0.9], [1, 0.9], [-1, 2.5], [1, 2.5]].forEach(([s, z]) => Cyl(g, 0.26, 0.28, 1.05, dgray, 1.5 + s * 0.45, 0.52, z));
+  B(g, 1.5, 1.4, 2.4, gray, 1.5, 1.7, 1.7);
+  B(g, 1.1, 1.1, 1.0, gray, 1.5, 2.1, 3.4);
+  [-1, 1].forEach((s) => {
+    Cyl(g, 0.55, 0.55, 0.06, dgray, 1.5 + s * 0.68, 2.1, 3.1).rotation.z = Math.PI / 2;
+    Sph(g, 0.06, black, 1.5 + s * 0.4, 2.3, 3.88);
+    Cone(g, 0.07, 0.6, 6, mat("#F4EEDD"), 1.5 + s * 0.38, 1.55, 3.95).rotation.x = Math.PI / 2 - 0.5;
+  });
+  tube(g, [1.5, 1.95, 3.85], [1.5, 1.3, 4.25], 0.2, gray);
+  tube(g, [1.5, 1.3, 4.25], [1.5, 0.6, 4.4], 0.16, gray);
+  tube(g, [1.5, 0.6, 4.4], [1.5, 0.35, 4.1], 0.12, gray);
+  tube(g, [1.5, 2.2, 0.55], [1.5, 1.2, 0.35], 0.04, dgray);
+  return g;
+});
+reg("giraffe", "Giraffe", 1, 3, 4, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.3, L: 1.1, W: 0.45, H: 0.55, legH: 1.6, col: "#E8B04B", dark: "#C4902E", neckLen: 0.12, neckRise: 2.1, head: 0.24, snout: 0.2, legT: 0.1, tail: 0.5 });
+  const spot = mat("#8A5A2B");
+  [[0.8, 2.05], [1.3, 2.2], [0.5, 2.15], [1.05, 2.0]].forEach(([z, y]) => B(g, 0.47, 0.17, 0.2, spot, q.cx, y, z));
+  for (let i = 0; i < 4; i++) {
+    const t = 0.2 + i * 0.2;
+    Sph(g, 0.07, spot, q.cx + 0.1, q.top - 0.3 + (q.hy - q.top + 0.3) * t, q.z0 + q.L - 0.1 + (q.hz - q.z0 - q.L) * t);
+  }
+  [-1, 1].forEach((s) => {
+    tube(g, [q.cx + s * 0.06, q.hy + 0.12, q.hz - 0.05], [q.cx + s * 0.06, q.hy + 0.36, q.hz - 0.05], 0.02, spot);
+    Sph(g, 0.04, spot, q.cx + s * 0.06, q.hy + 0.38, q.hz - 0.05);
+  });
+  return g;
+});
+reg("camel", "Camel", 1, 3, 3, false, () => {
+  const g = new THREE.Group();
+  const q = quad(g, { z0: 0.35, L: 1.7, W: 0.6, H: 0.75, legH: 1.0, col: "#C9A15B", dark: "#A8803F", neckLen: 0.2, neckRise: 0.8, head: 0.28, snout: 0.3, legT: 0.13, tail: 0.4 });
+  [0.55, 1.2].forEach((z) => Sph(g, 0.3, mat("#C9A15B"), q.cx, q.top + 0.18, z).scale.set(0.9, 1.1, 1));
+  return g;
+});
+reg("monkey", "Monkey", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  const fur = mat("#7A5230");
+  const face = mat("#E8C9A0");
+  Sph(g, 0.2, fur, 0.5, 0.42, 0.45).scale.set(1, 1.2, 0.9);
+  Sph(g, 0.16, fur, 0.5, 0.82, 0.5);
+  Sph(g, 0.1, face, 0.5, 0.78, 0.62);
+  [-1, 1].forEach((s) => {
+    Sph(g, 0.06, face, 0.5 + s * 0.16, 0.86, 0.48);
+    Sph(g, 0.025, black, 0.5 + s * 0.06, 0.85, 0.65);
+    tube(g, [0.5 + s * 0.17, 0.55, 0.45], [0.5 + s * 0.22, 0.28, 0.58], 0.04, fur);
+    tube(g, [0.5 + s * 0.12, 0.3, 0.48], [0.5 + s * 0.12, 0.1, 0.58], 0.05, fur);
+    Sph(g, 0.07, fur, 0.5 + s * 0.12, 0.08, 0.6);
+  });
+  tube(g, [0.5, 0.25, 0.3], [0.5, 0.1, 0.15], 0.03, fur);
+  tube(g, [0.5, 0.1, 0.15], [0.5, 0.4, 0.08], 0.03, fur);
+  tube(g, [0.5, 0.4, 0.08], [0.5, 0.65, 0.2], 0.03, fur);
+  return g;
+});
+reg("penguin", "Penguin", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  Sph(g, 0.3, black, 0.5, 0.5, 0.5).scale.set(1, 1.5, 0.9);
+  Sph(g, 0.24, white, 0.5, 0.48, 0.58).scale.set(0.9, 1.4, 0.7);
+  Sph(g, 0.16, black, 0.5, 0.98, 0.5);
+  Cone(g, 0.05, 0.14, 6, orangeM, 0.5, 0.95, 0.68).rotation.x = Math.PI / 2;
+  [-1, 1].forEach((s) => {
+    Sph(g, 0.025, white, 0.5 + s * 0.07, 1.02, 0.63);
+    B(g, 0.05, 0.4, 0.2, black, 0.5 + s * 0.33, 0.55, 0.5).rotation.z = s * 0.3;
+    B(g, 0.15, 0.04, 0.22, orangeM, 0.5 + s * 0.12, 0.03, 0.6);
+  });
+  return g;
+});
+reg("duck", "Duck", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  Sph(g, 0.26, white, 0.5, 0.33, 0.5).scale.set(1, 0.8, 1.3);
+  Sph(g, 0.13, mat("#2E7D32"), 0.5, 0.6, 0.7);
+  B(g, 0.12, 0.04, 0.14, orangeM, 0.5, 0.57, 0.84);
+  [-1, 1].forEach((s) => Sph(g, 0.02, black, 0.5 + s * 0.07, 0.64, 0.78));
+  Cone(g, 0.08, 0.2, 6, white, 0.5, 0.42, 0.2).rotation.x = -Math.PI / 2 - 0.4;
+  [-1, 1].forEach((s) => B(g, 0.1, 0.02, 0.12, orangeM, 0.5 + s * 0.1, 0.02, 0.5));
+  return g;
+});
+reg("chicken", "Chicken", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  const feather = mat("#B5651D");
+  Sph(g, 0.22, feather, 0.5, 0.4, 0.5).scale.set(0.9, 0.95, 1.2);
+  Sph(g, 0.1, feather, 0.5, 0.68, 0.7);
+  B(g, 0.03, 0.08, 0.1, tailM, 0.5, 0.8, 0.7);
+  Cone(g, 0.04, 0.1, 5, yellowF, 0.5, 0.66, 0.82).rotation.x = Math.PI / 2;
+  Sph(g, 0.03, tailM, 0.5, 0.58, 0.78);
+  B(g, 0.05, 0.3, 0.16, mat("#7A3F10"), 0.5, 0.55, 0.22).rotation.x = -0.5;
+  [-1, 1].forEach((s) => tube(g, [0.5 + s * 0.07, 0.2, 0.5], [0.5 + s * 0.07, 0.02, 0.52], 0.02, yellowF));
+  return g;
+});
+reg("turtle", "Turtle", 1, 2, 1, false, () => {
+  const g = new THREE.Group();
+  const shell = mat("#6B7F3A");
+  Sph(g, 0.4, shell, 0.5, 0.3, 0.85).scale.set(1, 0.55, 1.2);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    Sph(g, 0.1, mat("#4F6029"), 0.5 + Math.cos(a) * 0.2, 0.5, 0.85 + Math.sin(a) * 0.28).scale.set(1, 0.4, 1);
+  }
+  Sph(g, 0.12, mat("#9BB46A"), 0.5, 0.28, 1.5);
+  [[0.2, 0.5], [0.8, 0.5], [0.2, 1.2], [0.8, 1.2]].forEach(([x, z]) => Sph(g, 0.1, mat("#9BB46A"), x, 0.1, z).scale.set(1, 0.6, 1.3));
+  [-1, 1].forEach((s) => Sph(g, 0.02, black, 0.5 + s * 0.06, 0.33, 1.6));
+  return g;
+});
+reg("frog", "Frog", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  const gr = mat("#4CAF50");
+  Sph(g, 0.22, gr, 0.5, 0.28, 0.5).scale.set(1, 0.7, 1.1);
+  [-1, 1].forEach((s) => {
+    Sph(g, 0.07, gr, 0.5 + s * 0.12, 0.45, 0.62);
+    Sph(g, 0.03, black, 0.5 + s * 0.12, 0.47, 0.68);
+    Sph(g, 0.1, gr, 0.5 + s * 0.22, 0.12, 0.3).scale.set(0.8, 0.8, 1.4);
+    Sph(g, 0.05, gr, 0.5 + s * 0.15, 0.07, 0.72);
+  });
+  B(g, 0.2, 0.03, 0.04, tailM, 0.5, 0.32, 0.72);
+  return g;
+});
+reg("crocodile", "Crocodile", 1, 4, 1, false, () => {
+  const g = new THREE.Group();
+  const gr = mat("#4F7F3A");
+  const dk = mat("#3B6029");
+  B(g, 0.5, 0.22, 1.4, gr, 0.5, 0.3, 2.0);
+  [[0.4, 1.0, 0.4], [0.3, 0.7, 0.25], [0.2, 0.5, 0.12]].forEach(([w, l, h], i) => B(g, w, h + 0.1, l, gr, 0.5, 0.25 - i * 0.03, 1.3 - [0, 0.8, 1.35][i] * 0.7));
+  B(g, 0.42, 0.2, 0.8, gr, 0.5, 0.28, 3.1);
+  B(g, 0.3, 0.12, 0.7, gr, 0.5, 0.22, 3.6);
+  [-1, 1].forEach((s) => {
+    Sph(g, 0.05, yellowF, 0.5 + s * 0.14, 0.42, 3.05);
+    Sph(g, 0.02, black, 0.5 + s * 0.14, 0.43, 3.09);
+    B(g, 0.14, 0.08, 0.2, dk, 0.5 + s * 0.34, 0.1, 1.5);
+    B(g, 0.14, 0.08, 0.2, dk, 0.5 + s * 0.34, 0.1, 2.6);
+  });
+  for (let z = 1.4; z < 2.8; z += 0.28) Cone(g, 0.05, 0.1, 4, dk, 0.5, 0.45, z);
+  return g;
+});
+reg("dolphin", "Dolphin", 1, 4, 2, false, () => {
+  const g = new THREE.Group();
+  B(g, 0.9, 0.1, 3.8, mat("#3C9BD6", { transparent: true, opacity: 0.8, roughness: 0.1 }), 0.5, 0.05, 2);
+  const sk = mat("#8DA3B5");
+  const belly = mat("#E6EEF4");
+  const up = (o, a) => ((o.rotation.x = -a), o);
+  up(Sph(g, 0.3, sk, 0.5, 1.05, 2.0), 0.45).scale.set(1, 1, 2.6);
+  up(Sph(g, 0.17, sk, 0.5, 0.62, 1.15), 0.9).scale.set(1, 1, 2.4);
+  up(Sph(g, 0.2, belly, 0.5, 0.98, 2.05), 0.45).scale.set(0.9, 0.7, 2.2);
+  Cone(g, 0.07, 0.36, 8, sk, 0.5, 1.42, 2.82).rotation.x = Math.PI / 2 - 0.45;
+  B(g, 0.55, 0.04, 0.22, sk, 0.5, 0.36, 0.78).rotation.x = 0.5;
+  Cone(g, 0.09, 0.32, 4, sk, 0.5, 1.4, 1.75).rotation.x = -0.9;
+  [-1, 1].forEach((sx) => {
+    B(g, 0.22, 0.04, 0.3, sk, 0.5 + sx * 0.28, 0.95, 2.35).rotation.z = sx * 0.4;
+    Sph(g, 0.025, black, 0.5 + sx * 0.14, 1.28, 2.52);
+  });
+  return g;
+});
+
+/* ----- more kitchen items ----- */
+const stoneTop = mat("#5B6068");
+reg("microwave", "Microwave", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.92, 0.55, 0.76, mat(c), 0.5, 0.275, 0.5);
+  B(g, 0.58, 0.4, 0.04, tintM, 0.38, 0.28, 0.9);
+  B(g, 0.2, 0.46, 0.04, black, 0.8, 0.28, 0.9);
+  [0.4, 0.28, 0.16].forEach((y) => Sph(g, 0.025, steel, 0.8, y, 0.93));
+  B(g, 0.03, 0.34, 0.04, steel, 0.65, 0.28, 0.94);
+  return g;
+});
+reg("toaster", "Toaster", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.62, 0.38, 0.38, mat(c, { metalness: 0.4 }), 0.5, 0.19, 0.5);
+  [0.42, 0.58].forEach((z) => {
+    B(g, 0.46, 0.01, 0.06, black, 0.5, 0.385, z);
+    B(g, 0.4, 0.14, 0.05, mat("#D9A860"), 0.5, 0.42, z);
+  });
+  B(g, 0.04, 0.06, 0.04, steel, 0.83, 0.28, 0.5);
+  return g;
+});
+reg("blender", "Blender", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.5, 0.25, 0.5, mat(c), 0.5, 0.125, 0.5);
+  Cyl(g, 0.2, 0.24, 0.55, glass(), 0.5, 0.52, 0.5);
+  Cyl(g, 0.21, 0.21, 0.07, black, 0.5, 0.835, 0.5);
+  Cyl(g, 0.05, 0.05, 0.03, steel, 0.5, 0.27, 0.5);
+  Sph(g, 0.03, steel, 0.5, 0.2, 0.76);
+  return g;
+});
+reg("coffeemaker", "Coffee maker", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 0.7, 0.08, 0.6, black, 0.5, 0.04, 0.5);
+  B(g, 0.6, 0.8, 0.25, m, 0.5, 0.48, 0.25);
+  B(g, 0.6, 0.15, 0.45, m, 0.5, 0.8, 0.4);
+  Cyl(g, 0.17, 0.2, 0.3, glass(), 0.5, 0.23, 0.62);
+  Cyl(g, 0.16, 0.19, 0.14, mat("#4A2C17"), 0.5, 0.15, 0.62);
+  Sph(g, 0.025, tailM, 0.7, 0.55, 0.38);
+  return g;
+});
+reg("ricecooker", "Rice cooker", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.38, 0.4, 0.4, white, 0.5, 0.2, 0.5);
+  Cyl(g, 0.395, 0.395, 0.06, mat(c), 0.5, 0.28, 0.5);
+  Sph(g, 0.36, white, 0.5, 0.4, 0.5).scale.set(1, 0.5, 1);
+  Sph(g, 0.04, steel, 0.5, 0.6, 0.5);
+  Sph(g, 0.03, tailM, 0.5, 0.18, 0.89);
+  return g;
+});
+reg("mixergrinder", "Mixer grinder", 1, 1, 1, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.62, 0.3, 0.5, mat(c), 0.5, 0.15, 0.5);
+  Cyl(g, 0.2, 0.17, 0.42, steel, 0.5, 0.51, 0.5);
+  Cyl(g, 0.21, 0.21, 0.06, mat(shade(c, 0.8)), 0.5, 0.75, 0.5);
+  tube(g, [0.72, 0.3, 0.5], [0.72, 0.68, 0.5], 0.03, black);
+  Cyl(g, 0.05, 0.05, 0.06, black, 0.5, 0.18, 0.78).rotation.x = Math.PI / 2;
+  return g;
+});
+reg("pressurecooker", "Pressure cooker", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.38, 0.38, 0.5, steel, 0.5, 0.25, 0.5);
+  Cyl(g, 0.4, 0.4, 0.08, steel, 0.5, 0.54, 0.5);
+  [-1, 1].forEach((s) => B(g, 0.2, 0.06, 0.08, black, 0.5 + s * 0.4, 0.5, 0.5));
+  Cyl(g, 0.04, 0.04, 0.1, black, 0.5, 0.63, 0.5);
+  Cyl(g, 0.07, 0.07, 0.04, black, 0.5, 0.7, 0.5);
+  return g;
+});
+reg("wok", "Wok", 1, 1, 1, false, () => {
+  const g = new THREE.Group();
+  add(g, G(THREE.SphereGeometry, 0.4, 18, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat("#3A3A3A", { side: THREE.DoubleSide, metalness: 0.5, roughness: 0.5 }), 0.4, 0.45, 0.5);
+  add(g, G(THREE.TorusGeometry, 0.22, 0.03, 6, 14), steel, 0.4, 0.08, 0.5).rotation.x = Math.PI / 2;
+  tube(g, [0.78, 0.45, 0.5], [0.97, 0.5, 0.5], 0.035, black);
+  return g;
+});
+reg("tawa", "Tawa (flat pan)", 1, 1, 0.25, false, () => {
+  const g = new THREE.Group();
+  Cyl(g, 0.42, 0.4, 0.07, mat("#2A2A2A", { metalness: 0.4 }), 0.4, 0.05, 0.5);
+  B(g, 0.28, 0.04, 0.07, black, 0.83, 0.1, 0.5);
+  return g;
+});
+reg("cuttingboard", "Cutting board", 1, 2, 0.25, false, () => {
+  const g = new THREE.Group();
+  B(g, 0.9, 0.07, 1.8, mat("#C89B5E"), 0.5, 0.04, 1);
+  B(g, 0.1, 0.03, 0.45, steel, 0.35, 0.1, 0.7);
+  B(g, 0.1, 0.04, 0.22, black, 0.35, 0.1, 1.05);
+  Sph(g, 0.1, tailM, 0.68, 0.16, 1.1);
+  return g;
+});
+reg("platestack", "Plate stack", 1, 1, 0.5, false, (c) => {
+  const g = new THREE.Group();
+  for (let i = 0; i < 5; i++) Cyl(g, 0.4, 0.34, 0.05, white, 0.5, 0.03 + i * 0.055, 0.5);
+  Cyl(g, 0.405, 0.405, 0.012, mat(c), 0.5, 0.3, 0.5);
+  return g;
+});
+reg("dinnerset", "Dinner set", 2, 1, 0.5, false, (c) => {
+  const g = new THREE.Group();
+  [0.5, 1.5].forEach((x) => {
+    Cyl(g, 0.4, 0.3, 0.06, white, x, 0.03, 0.5);
+    Cyl(g, 0.25, 0.22, 0.012, mat(c), x, 0.065, 0.5);
+  });
+  Cyl(g, 0.12, 0.1, 0.16, mat(c), 1.0, 0.09, 0.3);
+  Cyl(g, 0.12, 0.1, 0.16, mat(c), 1.0, 0.09, 0.7);
+  B(g, 0.05, 0.015, 0.4, steel, 0.0 + 0.08, 0.02, 0.5);
+  B(g, 0.05, 0.015, 0.4, steel, 1.92, 0.02, 0.5);
+  return g;
+});
+reg("basecab", "Kitchen base cabinet", 2, 1, 1.5, true, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 1.9, 0.15, 0.9, black, 1, 0.075, 0.5);
+  B(g, 1.96, 1.5, 0.96, m, 1, 0.9, 0.5);
+  B(g, 2, 0.12, 1, stoneTop, 1, 1.74, 0.5);
+  [0.5, 1.5].forEach((x) => {
+    B(g, 0.9, 1.2, 0.03, mat(shade(c, 1.12)), x, 0.9, 0.985);
+    B(g, 0.04, 0.3, 0.05, steel, x + (x < 1 ? 0.35 : -0.35), 1.3, 1.0 - 0.0);
+  });
+  return g;
+});
+reg("pantry", "Pantry cabinet", 2, 1, 3, false, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 1.96, 3.4, 0.96, m, 1, 1.85, 0.5);
+  B(g, 1.9, 0.15, 0.9, black, 1, 0.075, 0.5);
+  [[0.5, 0.9, 1.5], [1.5, 0.9, 1.5], [0.5, 2.65, 1.3], [1.5, 2.65, 1.3]].forEach(([x, y, h]) => {
+    B(g, 0.9, h, 0.03, mat(shade(c, 1.12)), x, y, 0.985);
+    B(g, 0.04, 0.3, 0.05, steel, x + (x < 1 ? 0.35 : -0.35), y, 1.0);
+  });
+  return g;
+});
+reg("kitchenisland", "Kitchen island", 4, 2, 1.5, true, (c) => {
+  const g = new THREE.Group();
+  const m = mat(c);
+  B(g, 3.5, 1.6, 1.5, m, 2, 0.8, 0.75);
+  B(g, 4, 0.14, 2, stoneTop, 2, 1.72, 1);
+  [0.2, 3.8].forEach((x) => B(g, 0.1, 1.65, 0.1, black, x, 0.83, 1.9));
+  [0.7, 2, 3.3].forEach((x) => {
+    B(g, 1.1, 0.5, 0.03, mat(shade(c, 1.12)), x, 1.25, 1.51);
+    B(g, 0.5, 0.04, 0.05, steel, x, 1.4, 1.54);
+    B(g, 1.1, 0.5, 0.03, mat(shade(c, 1.12)), x, 0.6, 1.51);
+    B(g, 0.5, 0.04, 0.05, steel, x, 0.75, 1.54);
+  });
+  return g;
+});
+reg("rangehood", "Range hood", 2, 1, 2, false, () => {
+  const g = new THREE.Group();
+  B(g, 1.9, 0.35, 0.95, steel, 1, 0.2, 0.5);
+  B(g, 1.7, 0.03, 0.85, lit("#FFF3B0"), 1, 0.02, 0.5);
+  B(g, 0.6, 1.9, 0.5, steel, 1, 1.3, 0.35);
+  B(g, 0.7, 0.1, 0.55, steel, 1, 2.3, 0.35);
+  return g;
+});
+reg("dishwasher", "Dishwasher", 2, 1, 1.5, true, () => {
+  const g = new THREE.Group();
+  B(g, 1.96, 1.65, 0.96, steel, 1, 0.83, 0.5);
+  B(g, 1.9, 0.22, 0.02, black, 1, 1.52, 0.99);
+  B(g, 1.4, 0.05, 0.07, white, 1, 1.25, 1.0);
+  [0.3, 0.45, 0.6].forEach((x) => Sph(g, 0.03, lit("#2AD04A"), 1.5 + x - 0.45, 1.52, 1.0));
+  return g;
+});
+reg("waterdispenser", "Water dispenser", 1, 1, 3, false, (c) => {
+  const g = new THREE.Group();
+  B(g, 0.7, 2.0, 0.65, mat(c), 0.5, 1.0, 0.5);
+  B(g, 0.55, 0.06, 0.2, black, 0.5, 0.8, 0.9);
+  Cyl(g, 0.03, 0.03, 0.12, tailM, 0.38, 1.3, 0.85);
+  Cyl(g, 0.03, 0.03, 0.12, mat("#2A6BFF"), 0.62, 1.3, 0.85);
+  Cyl(g, 0.1, 0.22, 0.2, mat("#6FB6FF", { transparent: true, opacity: 0.55 }), 0.5, 2.1, 0.5);
+  Cyl(g, 0.28, 0.28, 0.95, mat("#6FB6FF", { transparent: true, opacity: 0.55 }), 0.5, 2.68, 0.5);
+  return g;
+});
+reg("fruitbowl", "Fruit bowl", 1, 1, 0.5, false, (c) => {
+  const g = new THREE.Group();
+  add(g, G(THREE.SphereGeometry, 0.4, 18, 8, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2), mat(c, { side: THREE.DoubleSide }), 0.5, 0.4, 0.5);
+  [[0.38, 0.5], [0.62, 0.45], [0.5, 0.68]].forEach(([x, z]) => Sph(g, 0.12, tailM, x, 0.26, z));
+  [[0.55, 0.3], [0.35, 0.7]].forEach(([x, z]) => Sph(g, 0.11, orangeM, x, 0.3, z));
+  tube(g, [0.3, 0.33, 0.35], [0.5, 0.4, 0.5], 0.035, yellowF);
+  tube(g, [0.5, 0.4, 0.5], [0.68, 0.34, 0.6], 0.035, yellowF);
+  return g;
+});
+reg("tandoor", "Tandoor (clay oven)", 2, 2, 2, false, (c) => {
+  const g = new THREE.Group();
+  const clay = mat("#B5532A", { roughness: 0.9 });
+  Cyl(g, 0.8, 0.93, 1.6, clay, 1, 0.8, 1);
+  Cyl(g, 0.58, 0.8, 0.3, clay, 1, 1.75, 1);
+  add(g, G(THREE.TorusGeometry, 0.58, 0.07, 8, 24), clay, 1, 1.92, 1).rotation.x = Math.PI / 2;
+  Cyl(g, 0.5, 0.5, 0.02, black, 1, 1.9, 1);
+  Cyl(g, 0.9, 0.93, 0.12, mat(c), 1, 0.55, 1);
+  B(g, 0.4, 0.4, 0.05, black, 1, 0.35, 1.9);
+  return g;
+});
+
+/* ----- landscape: ocean, river, waterfall, mountain, forest, island, hill, cliff ----- */
+const rockM = mat("#8A8D91", { flatShading: true, roughness: 0.95 });
+const rockBrown = mat("#7C6A55", { flatShading: true, roughness: 0.95 });
+const sandM = mat("#D8C27A");
+const grassM = mat("#5DAA4F");
+const waterTint = mat("#3C9BD6", { transparent: true, opacity: 0.85, roughness: 0.1 });
+const snowM = mat("#F4F8FB", { flatShading: true });
+
+regCustom("ocean", "Ocean (custom)", [
+  { key: "w", label: "Width", kind: "num", min: 4, max: 16, step: 1, def: 8 },
+  { key: "d", label: "Length", kind: "num", min: 4, max: 16, step: 1, def: 8 },
+  { key: "waves", label: "Waves", kind: "sel", def: "rolling", options: [["calm", "Calm"], ["rolling", "Rolling"], ["rough", "Rough"]] },
+  { key: "beach", label: "Beach edge", kind: "tog", def: true },
+], (o) => ({ w: o.w, d: o.d, h: 0.5, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const { w, d } = o;
+  B(g, w - 0.04, 0.3, d - 0.04, mat("#1F5F8F"), w / 2, 0.15, d / 2);
+  B(g, w - 0.04, 0.1, d - 0.04, waterTint, w / 2, 0.35, d / 2);
+  if (o.beach) {
+    B(g, w - 0.04, 0.5, 1.3, sandM, w / 2, 0.25, 0.65);
+    B(g, w - 0.04, 0.4, 0.5, mat("#CDB87A"), w / 2, 0.2, 1.55);
+    B(g, w - 0.04, 0.04, 0.1, white, w / 2, 0.41, 1.9);
+  }
+  const amp = { calm: 0.08, rolling: 0.2, rough: 0.24 }[o.waves];
+  const wave = mat("#6FC1EA", { transparent: true, opacity: 0.9, roughness: 0.2 });
+  let i = 0;
+  for (let z = o.beach ? 2.4 : 0.8; z < d - 0.5; z += 1.1) {
+    for (let x = 1.2 + (i % 2) * 0.9; x < w - 1.1; x += 2.2) {
+      const jx = x + (rnd(i * 3) - 0.5) * 0.3;
+      const jz = z + (rnd(i * 3 + 1) - 0.5) * 0.3;
+      Sph(g, 0.5, wave, jx, 0.4, jz).scale.set(1.7, amp, 0.45);
+      if (o.waves === "rough") Sph(g, 0.22, white, jx, 0.4 + 0.5 * amp, jz).scale.set(1.5, 0.3, 0.6);
+      i++;
+    }
+  }
+  return g;
+});
+
+regCustom("rivercustom", "River (custom)", [
+  { key: "wid", label: "Width", kind: "num", min: 3, max: 10, step: 1, def: 4 },
+  { key: "len", label: "Length", kind: "num", min: 3, max: 16, step: 1, def: 6 },
+  { key: "bend", label: "Shape", kind: "sel", def: "straight", options: [["straight", "Straight"], ["bend", "Bend (square piece)"]] },
+  { key: "rapids", label: "Rapids", kind: "tog", def: false },
+], (o) => (o.bend === "bend" ? { w: o.len, d: o.len, h: 0.5, top: true } : { w: o.wid, d: o.len, h: 0.5, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const soil = mat("#C9B070");
+  const reed = mat("#6E9A31");
+  if (o.bend !== "bend") {
+    const { wid: w, len: d } = o;
+    const ww = Math.max(1, w - 1.6);
+    B(g, w - 0.04, 0.2, d - 0.04, grassM, w / 2, 0.1, d / 2);
+    [(w - ww) / 2 - 0.1, (w + ww) / 2 + 0.1].forEach((x) => B(g, 0.2, 0.14, d - 0.04, soil, x, 0.1, d / 2));
+    B(g, ww, 0.1, d - 0.04, waterTint, w / 2, 0.22, d / 2);
+    for (let z = 0.5, i = 0; z < d - 0.3; z += 0.8, i++) {
+      const left = i % 2 === 0;
+      const x = left ? (w - ww) / 2 - 0.3 - rnd(i) * 0.15 : (w + ww) / 2 + 0.3 + rnd(i) * 0.15;
+      if (x > 0.2 && x < w - 0.2) Ico(g, 0.13 + rnd(i + 3) * 0.1, rockM, x, 0.24, z, 1, 0.8, 1, rnd(i) * 3);
+      if (i % 3 === 1 && x > 0.2 && x < w - 0.2) for (let k = 0; k < 3; k++) Cyl(g, 0.012, 0.015, 0.3 + k * 0.05, reed, x + (k - 1) * 0.06, 0.35, z + 0.2);
+    }
+    if (o.rapids) for (let z = 0.6, i = 0; z < d - 0.4; z += 0.9, i++) {
+      B(g, ww * 0.7, 0.03, 0.08, white, w / 2 + (rnd(i) - 0.5) * 0.3, 0.29, z);
+      Ico(g, 0.12, rockM, w / 2 + (rnd(i + 5) - 0.5) * (ww - 0.6), 0.27, z + 0.35, 1, 0.7, 1, i);
+    }
+  } else {
+    const n = o.len;
+    const ww = Math.min(Math.max(1, o.wid - 1.6), n - 1.2);
+    const r1 = n / 2 - ww / 2;
+    const r2 = n / 2 + ww / 2;
+    const ringM = (col, extra = {}) => mat(col, { side: THREE.DoubleSide, ...extra });
+    B(g, n - 0.04, 0.2, n - 0.04, grassM, n / 2, 0.1, n / 2);
+    add(g, G(THREE.RingGeometry, Math.max(0.01, r1 - 0.2), r1, 40, 1, 0, Math.PI / 2), ringM("#C9B070"), 0, 0.2, 0).rotation.x = Math.PI / 2;
+    add(g, G(THREE.RingGeometry, r2, r2 + 0.2, 40, 1, 0, Math.PI / 2), ringM("#C9B070"), 0, 0.2, 0).rotation.x = Math.PI / 2;
+    add(g, G(THREE.RingGeometry, r1, r2, 40, 1, 0, Math.PI / 2), ringM("#3C9BD6", { transparent: true, opacity: 0.85, roughness: 0.1 }), 0, 0.26, 0).rotation.x = Math.PI / 2;
+    for (let i = 0; i < 10; i++) {
+      const a = 0.12 + (i / 10) * (Math.PI / 2 - 0.2);
+      const r = i % 2 ? r1 - 0.3 : r2 + 0.3;
+      if (r > 0.6) Ico(g, 0.13 + rnd(i) * 0.1, rockM, Math.cos(a) * r, 0.24, Math.sin(a) * r, 1, 0.8, 1, i);
+      if (o.rapids && i % 2 === 0) {
+        const rm = (r1 + r2) / 2;
+        B(g, ww * 0.6, 0.03, 0.08, white, Math.cos(a) * rm, 0.3, Math.sin(a) * rm).rotation.y = -a;
+      }
+    }
+  }
+  return g;
+});
+
+regCustom("waterfall", "Waterfall (custom)", [
+  { key: "wid", label: "Fall width", kind: "num", min: 1, max: 6, step: 1, def: 3 },
+  { key: "tall", label: "Height", kind: "num", min: 3, max: 10, step: 1, def: 6 },
+  { key: "pool", label: "Pool at the bottom", kind: "tog", def: true },
+], (o) => ({ w: o.wid + 2, d: o.pool ? 4 : 2, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const w = o.wid + 2;
+  const H = o.tall * BH;
+  const sheet = mat("#BFE6FA", { transparent: true, opacity: 0.75, roughness: 0.1 });
+  B(g, w - 0.04, H - 0.12, 1.5, rockBrown, w / 2, (H - 0.12) / 2, 0.75);
+  [0.45, w - 0.45].forEach((x, k) => {
+    B(g, 0.9, H * 0.7, 0.45, rockM, x, (H * 0.7) / 2, 1.72);
+    Ico(g, 0.45, rockM, x, H * 0.7 + 0.1, 1.6, 1, 0.8, 1, k + 1);
+    Sph(g, 0.4, leafA, x, H - 0.2, 0.7).scale.set(1, 0.7, 1);
+  });
+  B(g, o.wid, 0.1, 1.55, waterTint, w / 2, H - 0.07, 0.78);
+  B(g, o.wid, H - 0.5, 0.1, sheet, w / 2, (H - 0.5) / 2 + 0.35, 1.56);
+  for (let i = 0; i < o.wid * 2; i++) {
+    const hh = H * (0.5 + rnd(i) * 0.4);
+    B(g, 0.07, hh, 0.04, white, 1 + 0.25 + (i / (o.wid * 2)) * o.wid, H - 0.3 - hh / 2, 1.64);
+  }
+  if (o.pool) {
+    B(g, w - 0.04, 0.3, 2.4, sandM, w / 2, 0.15, 2.8);
+    B(g, w - 0.5, 0.1, 2.0, waterTint, w / 2, 0.3, 2.85);
+    for (let i = 0; i < 9; i++) {
+      const t = i / 9;
+      const x = 0.3 + t * (w - 0.6);
+      Ico(g, 0.15 + rnd(i) * 0.1, rockM, x, 0.32, 3.85, 1, 0.8, 1, i);
+    }
+    [0.2, w - 0.2].forEach((x) => [2.3, 3.2].forEach((z, k) => Ico(g, 0.18, rockM, x, 0.32, z, 1, 0.8, 1, k)));
+  } else {
+    B(g, w - 0.04, 0.25, 0.4, rockM, w / 2, 0.125, 1.8);
+  }
+  B(g, o.wid + 0.3, 0.04, 0.5, white, w / 2, o.pool ? 0.37 : 0.28, 1.85);
+  const mist = mat("#FFFFFF", { transparent: true, opacity: 0.45 });
+  for (let i = 0; i < 4; i++) Sph(g, 0.3, mist, w / 2 + (i - 1.5) * (o.wid / 4 + 0.1), 0.55 + (i % 2) * 0.1, 1.75);
+  return g;
+});
+
+regCustom("mountain", "Mountain (custom)", [
+  { key: "size", label: "Base size", kind: "num", min: 4, max: 12, step: 1, def: 6 },
+  { key: "tall", label: "Height", kind: "num", min: 3, max: 12, step: 1, def: 7 },
+  { key: "peaks", label: "Peaks", kind: "num", min: 1, max: 3, step: 1, def: 2 },
+  { key: "style", label: "Style", kind: "sel", def: "snowy", options: [["snowy", "Snow-capped"], ["rocky", "Rocky"], ["green", "Forested"], ["volcano", "Volcano"]] },
+], (o) => ({ w: o.size, d: o.size, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const n = o.size;
+  const H = o.tall * BH;
+  const col = { snowy: "#7D8187", rocky: "#8A7F75", green: "#5E8F4B", volcano: "#5A4B45" }[o.style];
+  const body = mat(col, { flatShading: true, roughness: 0.95 });
+  B(g, n - 0.04, 0.12, n - 0.04, o.style === "green" ? grassM : mat("#7C7F83"), n / 2, 0.06, n / 2);
+  const cone = (x, z, R, h, ry) => {
+    Cone(g, R, h, 7, body, x, 0.1 + h / 2, z).rotation.y = ry;
+    return { x, z, R, h };
+  };
+  const peaks = [];
+  if (o.style === "volcano") {
+    Cyl(g, 0.16 * n, 0.48 * n, H - 0.1, body, n / 2, 0.1 + (H - 0.1) / 2, n / 2);
+    Cyl(g, 0.12 * n, 0.12 * n, 0.04, black, n / 2, H - 0.0, n / 2);
+    Cyl(g, 0.11 * n, 0.11 * n, 0.03, lit("#FF6A1A"), n / 2, H - 0.03, n / 2);
+    [-0.5, 0.9, 2.3].forEach((a, i) => {
+      const r = 0.2 * n + 0.1 * n * (1 - i * 0.18);
+      B(g, 0.12, H * 0.55, 0.05, lit("#FF6A1A"), n / 2 + Math.cos(a) * r, H * 0.62, n / 2 + Math.sin(a) * r).rotation.set(0.0, -a + Math.PI / 2, 0.0);
+    });
+  } else {
+    peaks.push(cone(n / 2, n / 2, 0.48 * n, H - 0.1, 0.3));
+    if (o.peaks >= 2) peaks.push(cone(n / 2 - 0.22 * n, n / 2 + 0.12 * n, 0.26 * n, (H - 0.1) * 0.62, 1.1));
+    if (o.peaks >= 3) peaks.push(cone(n / 2 + 0.22 * n, n / 2 - 0.1 * n, 0.26 * n, (H - 0.1) * 0.5, 2.0));
+    if (o.style === "snowy")
+      peaks.forEach((p, i) => Cone(g, p.R * 0.31, p.h * 0.3, 7, snowM, p.x, 0.1 + p.h * 0.85, p.z).rotation.y = [0.3, 1.1, 2.0][i]);
+  }
+  if (o.style === "green") {
+    const pine = mat("#1F5F34");
+    for (let i = 0; i < Math.min(26, n * 3); i++) {
+      const a = rnd(i * 2) * Math.PI * 2;
+      const r = n * (0.14 + rnd(i * 2 + 1) * 0.26);
+      const y = 0.12 + Math.max(0, (H - 0.1) * (1 - r / (0.48 * n))) * 0.45;
+      Cone(g, 0.14, 0.45, 6, pine, n / 2 + Math.cos(a) * r, y + 0.2, n / 2 + Math.sin(a) * r);
+    }
+  } else {
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + 0.3;
+      Ico(g, 0.15 + rnd(i) * 0.1, rockM, n / 2 + Math.cos(a) * n * 0.38, 0.22, n / 2 + Math.sin(a) * n * 0.38, 1, 0.8, 1, i);
+    }
+  }
+  return g;
+});
+
+// a small tree for forests
+function smallTree(g, kind, x, z, s, i) {
+  const trunkH = 0.7 * s;
+  Cyl(g, 0.06 * s, 0.09 * s, trunkH, bark, x, 0.14 + trunkH / 2, z);
+  const base = 0.14 + trunkH;
+  const k = kind === "mixed" ? (i % 3 === 0 ? "round" : "pine") : kind;
+  if (k === "pine") {
+    const pine = mat(i % 2 ? "#1F5F34" : "#2A6E3F");
+    Cone(g, 0.55 * s, 1.1 * s, 7, pine, x, base + 0.35 * s, z);
+    Cone(g, 0.42 * s, 0.9 * s, 7, pine, x, base + 0.85 * s, z);
+    Cone(g, 0.3 * s, 0.8 * s, 7, pine, x, base + 1.25 * s, z);
+  } else if (k === "jungle") {
+    Sph(g, 0.6 * s, mat(["#2E7D32", "#3FA34D", "#1F6B2A"][i % 3]), x, base + 0.45 * s, z).scale.set(1.2, 0.8, 1.2);
+    Sph(g, 0.4 * s, leafB, x + 0.25 * s, base + 0.9 * s, z - 0.1 * s);
+  } else {
+    const cols = k === "autumn" ? ["#D2691E", "#C0392B", "#E8A33D"] : k === "blossom" ? ["#F7B6CD", "#F29BB8", "#FAD0DF"] : ["#2E7D32", "#3FA34D", "#2B6B2F"];
+    Sph(g, 0.5 * s, mat(cols[i % 3]), x, base + 0.4 * s, z);
+    Sph(g, 0.35 * s, mat(cols[(i + 1) % 3]), x + 0.2 * s, base + 0.8 * s, z + 0.05);
+  }
+}
+regCustom("forest", "Forest (custom)", [
+  { key: "w", label: "Width", kind: "num", min: 3, max: 12, step: 1, def: 6 },
+  { key: "d", label: "Length", kind: "num", min: 3, max: 12, step: 1, def: 6 },
+  { key: "kind", label: "Trees", kind: "sel", def: "mixed", options: [["mixed", "Mixed"], ["pine", "Pine"], ["jungle", "Jungle"], ["autumn", "Autumn"], ["blossom", "Blossom"]] },
+  { key: "density", label: "Density", kind: "sel", def: "normal", options: [["sparse", "Sparse"], ["normal", "Normal"], ["dense", "Dense"]] },
+], (o) => ({ w: o.w, d: o.d, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const { w, d } = o;
+  B(g, w - 0.04, 0.14, d - 0.04, mat(o.kind === "autumn" ? "#8B6F3A" : o.kind === "jungle" ? "#3F7A35" : "#4C8A3E"), w / 2, 0.07, d / 2);
+  const count = Math.max(2, Math.min(44, Math.round(w * d * { sparse: 0.12, normal: 0.22, dense: 0.38 }[o.density])));
+  const cols = Math.max(1, Math.round(Math.sqrt((count * (w - 1.2)) / (d - 1.2))));
+  const rows = Math.ceil(count / cols);
+  const cw = (w - 1.2) / cols;
+  const ch = (d - 1.2) / rows;
+  for (let i = 0; i < count; i++) {
+    const cx = i % cols;
+    const cz = Math.floor(i / cols);
+    const x = 0.6 + (cx + 0.5 + (rnd(i * 2) - 0.5) * 0.6) * cw;
+    const z = 0.6 + (cz + 0.5 + (rnd(i * 2 + 1) - 0.5) * 0.6) * ch;
+    smallTree(g, o.kind, x, z, 0.8 + rnd(i + 40) * 0.4, i);
+  }
+  for (let i = 0; i < Math.min(14, count); i++) {
+    const x = 0.4 + rnd(i * 5 + 7) * (w - 0.8);
+    const z = 0.4 + rnd(i * 5 + 8) * (d - 0.8);
+    if (i % 4 === 0) Ico(g, 0.14, rockM, x, 0.2, z, 1, 0.7, 1, i);
+    else Sph(g, 0.16, i % 2 ? leafA : leafB, x, 0.22, z).scale.set(1, 0.7, 1);
+  }
+  return g;
+});
+reg("island", "Tropical island 5×5", 5, 5, 2, false, () => {
+  const g = new THREE.Group();
+  B(g, 4.96, 0.2, 4.96, waterTint, 2.5, 0.1, 2.5);
+  add(g, G(THREE.TorusGeometry, 2.25, 0.05, 6, 36), white, 2.5, 0.22, 2.5).rotation.x = Math.PI / 2;
+  Cyl(g, 1.8, 2.15, 0.35, sandM, 2.5, 0.37, 2.5);
+  const trunk = mat("#8B6B43");
+  [[2.0, 2.2, 0.2], [3.1, 2.9, -0.25]].forEach(([x, z, lean], k) => {
+    for (let i = 0; i < 3; i++) Cyl(g, 0.08, 0.1, 0.6, trunk, x + lean * (i / 2), 0.7 + i * 0.58, z).rotation.z = -lean;
+    for (let f = 0; f < 6; f++) {
+      const a = (f * Math.PI) / 3;
+      const fr = Sph(g, 0.45, leafB, x + lean + Math.cos(a) * 0.4, 2.3, z + Math.sin(a) * 0.4);
+      fr.scale.set(1, 0.12, 0.45);
+      fr.rotation.order = "YZX";
+      fr.rotation.set(0, -a, -0.35);
+    }
+    Sph(g, 0.08, bark, x + lean, 2.2 - k * 0.0, z);
+  });
+  [[3.4, 1.6], [1.5, 3.4], [3.0, 3.6]].forEach(([x, z], i) => Ico(g, 0.25 + rnd(i) * 0.15, rockM, x, 0.6, z, 1, 0.8, 1, i));
+  B(g, 0.5, 0.05, 0.8, tailM, 1.6, 0.56, 1.5).rotation.y = 0.5;
+  return g;
+});
+reg("hill", "Grassy hill 4×4", 4, 4, 2, false, () => {
+  const g = new THREE.Group();
+  const dome = add(g, G(THREE.SphereGeometry, 1.95, 28, 12, 0, Math.PI * 2, 0, Math.PI / 2), mat("#5FAF4F"), 2, 0, 2);
+  dome.scale.set(1, 0.8, 1);
+  [[1.2, 2.9, 0.9], [3.0, 1.4, 0.85], [2.5, 3.1, 0.8]].forEach(([x, z, s], i) => smallTree(g, "round", x, z, s, i));
+  [[2.2, 1.2], [1.1, 1.6]].forEach(([x, z], i) => Ico(g, 0.18, rockM, x, 1.3, z, 1, 0.7, 1, i));
+  return g;
+});
+reg("cliff", "Rock cliff 4×2", 4, 2, 5, false, () => {
+  const g = new THREE.Group();
+  const layers = [[3.8, 1.0, 1.8], [3.5, 1.2, 1.7], [3.2, 1.0, 1.6], [2.8, 1.2, 1.5], [2.3, 1.1, 1.3]];
+  let y = 0;
+  layers.forEach(([lw, lh, ld], i) => {
+    B(g, lw, lh, ld, i % 2 ? rockBrown : rockM, 2 + (rnd(i) - 0.5) * 0.2, y + lh / 2, 1);
+    y += lh;
+  });
+  B(g, 2.3, 0.1, 1.3, grassM, 2, y + 0.05, 1);
+  [[0.5, 1.5], [3.5, 1.4], [3.3, 0.5]].forEach(([x, z], i) => Ico(g, 0.35, rockM, x, 0.3, z, 1, 0.8, 1, i));
+  return g;
+});
+
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
@@ -2637,12 +4321,13 @@ export const GROUPS = [
   { title: "Custom roofs", keys: ["flatroof", "triroof"] },
   { title: "Roofs", keys: ["roof2", "roof4", "gable2", "gable4", "hip2", "hip4", "spire", "dome", "rooftile2", "rooftile4", "tilegable2", "tilegable4", "glassroof2", "glassroof4", "glassgable2", "glassgable4", "glassflat2", "glassflat4", "roofcornerout2", "roofcornerout4", "roofcornerin2", "roofcornerin4", "barrel2", "barrel4", "metalroof4"] },
   { title: "Wooden logs", keys: ["log2", "log4", "logpile", "firewood", "stump"] },
-  { title: "Trees", keys: ["pine", "oak", "palm"] },
+  { title: "Trees", keys: ["pine", "oak", "palm", "birch", "willow", "maple", "cherry", "banyan", "mango", "coconut", "bamboo", "baobab", "cypress", "appletree", "deadtree", "xmas", "bigpine", "snowpine", "acacia"] },
+  { title: "Flowering plants", keys: ["rose", "tulips", "lavender", "daisies", "orchid", "hibiscus", "marigold", "lotus", "bougainvillea", "hangbasket", "flowergarden", "meadow", "planter"] },
   { title: "Plants and stones", keys: ["pot", "bush", "flowers", "sunflower", "cactus", "grass", "hedge", "stone", "boulder"] },
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
   { title: "Fences and gates", keys: ["fence2", "fence", "panelfence", "ironfence", "meshfence", "gate2", "gate4", "gateopen"] },
   { title: "Roof rails", keys: ["roofrail2", "roofrail4", "railcorner", "glassrail"] },
-  { title: "Lighting", keys: ["tablelamp", "hanglamp", "chandelier", "walllight", "spotlight", "lantern", "streetlight", "ledstrip"] },
+  { title: "Lighting", keys: ["tablelamp", "hanglamp", "chandelier", "walllight", "spotlight", "lantern", "streetlight", "streetlight2", "curvedlight", "solarlight", "floodlight", "bollardlight", "pathlight", "ledstrip"] },
   { title: "Floor tiles", keys: ["floortile", "floorc2", "floorc4", "floorw2", "floorw4", "floort2", "floort4"] },
   { title: "Garden tiles", keys: ["gardentile", "lawn2", "lawn4", "gpath", "gsteps", "paver2", "paver4", "cobble2", "cobble4"] },
   { title: "Garden things", keys: ["raisedbed", "wheelbarrow", "wateringcan", "shed", "greenhouse", "pergola", "arch", "birdbath", "scarecrow", "well"] },
@@ -2650,17 +4335,22 @@ export const GROUPS = [
   { title: "Towers and castle", keys: ["towerround2", "towerround4", "towertop2", "towertop4", "towerroof2", "towerroof4", "castlewall", "castlegate", "flag"] },
   { title: "People", keys: ["person", "worker", "woman", "man", "child", "chef", "doctor", "police", "farmer"] },
   { title: "Pets", keys: ["dog", "cat", "rabbit", "parrot", "fishbowl"] },
-  { title: "Road vehicles", keys: ["car", "bus"] },
-  { title: "Air vehicles", keys: ["heli", "jet"] },
-  { title: "Roads", keys: ["road4", "road8", "roadcurve", "roadt", "roadx", "zebra", "pavement"] },
+  { title: "Animals", keys: ["horse", "cow", "sheep", "pig", "goat", "chicken", "duck", "deer", "zebraanimal", "lion", "tiger", "bear", "panda", "elephant", "giraffe", "camel", "monkey", "penguin", "turtle", "frog", "crocodile", "dolphin"] },
+  { title: "Road vehicles", keys: ["car", "taxi", "suv", "policecar", "racecar", "pickup", "van", "ambulance", "firetruck", "truck", "rickshaw", "bus", "schoolbus", "doubledecker"] },
+  { title: "Construction vehicles", keys: ["dumptruck", "cement", "tractor", "excavator", "bulldozer", "crane"] },
+  { title: "Bridges and construction", keys: ["bridgedeck", "bridgepier", "bridgearch", "trussbridge", "suspension", "cablestay", "beam", "column", "scaffold", "towercrane", "trafficcone", "roadbarrier"] },
+  { title: "Air vehicles", keys: ["heli", "jet", "airplane", "balloon", "rocket"] },
+  { title: "Roads", keys: ["road4", "road8", "roadcurve", "roadt", "roadx", "zebra", "pavement", "trafficlight", "roadsign"] },
   { title: "Two-wheelers", keys: ["bicycle", "kick", "scooter", "motorbike"] },
-  { title: "Railway", keys: ["track2", "track4", "curve", "loco", "coach", "wagon"] },
-  { title: "Water and boats", keys: ["pond", "river", "lake", "sea", "pool6", "pool8", "motorboat", "sailboat", "ship"] },
+  { title: "Railway", keys: ["track2", "track4", "curve", "loco", "coach", "wagon", "tram"] },
+  { title: "Water and boats", keys: ["pond", "river", "lake", "sea", "pool6", "pool8", "motorboat", "sailboat", "ship", "canoe", "submarine"] },
   { title: "Furniture", keys: ["stool", "chair", "armchair", "sofa", "table2", "table4", "glasstable", "dresser", "wardrobe", "bookshelf", "floorlamp"] },
   { title: "Beds", keys: ["crib", "bedkids", "bedsingle", "bed", "beddouble", "bedking", "bunk"] },
   { title: "Bathroom", keys: ["toilet", "bathtub", "shower", "basin", "towels", "mirror"] },
   { title: "Home", keys: ["bulb", "tv", "fridge", "washer", "ac", "acout"] },
-  { title: "Kitchen", keys: ["oven", "gasstove", "gascyl", "sink", "pan", "cookpot", "kettle", "utensils"] },
+  { title: "Kitchen", keys: ["oven", "gasstove", "gascyl", "sink", "pan", "cookpot", "kettle", "utensils", "microwave", "toaster", "blender", "coffeemaker", "ricecooker", "mixergrinder", "pressurecooker", "wok", "tawa", "tandoor", "cuttingboard", "platestack", "dinnerset", "fruitbowl"] },
+  { title: "Kitchen units", keys: ["basecab", "kitchenisland", "pantry", "dishwasher", "rangehood", "waterdispenser"] },
+  { title: "Landscape", keys: ["ocean", "rivercustom", "waterfall", "mountain", "forest", "hill", "cliff", "island"] },
 ];
 
 /* ---------- placement ---------- */
@@ -2696,11 +4386,16 @@ export function buildPiece(type, color, id, rot = 0, ghostMat = null, opts = nul
 
 const overlaps = (p, x, z, w, d) => x < p.x + p.w && x + w > p.x && z < p.z + p.d && z + d > p.z;
 
-/* Which layer would a piece land on, and is something un-stackable in the way? */
-export function stackInfo(pieces, x, z, w, d) {
+/* Which layer would a piece land on, and is something in the way?
+   opts.below: only pieces that start under this layer count as support (the rest are cut away, so you can build inside a house).
+   opts.h: the piece's height, so it cannot poke into a hidden roof or beam above it. */
+export function stackInfo(pieces, x, z, w, d, opts) {
+  const below = opts && opts.below != null ? opts.below : Infinity;
   let lvl = 0;
-  for (const p of pieces) if (overlaps(p, x, z, w, d)) lvl = Math.max(lvl, p.y + p.h);
-  const blocked = pieces.some((p) => overlaps(p, x, z, w, d) && p.y + p.h === lvl && !p.top);
+  // pieces stuck onto a surface (p.att) sit at their own height, so they never lift what is placed beside or under them
+  for (const p of pieces) if (!p.att && p.y < below && overlaps(p, x, z, w, d)) lvl = Math.max(lvl, p.y + p.h);
+  let blocked = pieces.some((p) => !p.att && p.y < below && overlaps(p, x, z, w, d) && p.y + p.h === lvl && !p.top);
+  if (!blocked && opts && opts.h) blocked = pieces.some((p) => overlaps(p, x, z, w, d) && p.y < lvl + opts.h && p.y + p.h > lvl);
   return { lvl, blocked };
 }
 
@@ -2708,7 +4403,16 @@ export function stackInfo(pieces, x, z, w, d) {
 export function settle(pieces) {
   const out = [];
   [...pieces]
+    .filter((p) => !p.att)
     .sort((a, b) => a.y - b.y)
     .forEach((p) => out.push({ ...p, y: stackInfo(out, p.x, p.z, p.w, p.d).lvl }));
-  return out;
+  return [...out, ...pieces.filter((p) => p.att)]; // surface-attached pieces keep exactly where they were put
+}
+
+/* Does a box (x, z, w, d on the plate; y, h in layers) touch any other piece? Used for free placement on surfaces. */
+export function boxHits(pieces, x, z, w, d, y, h, below = Infinity) {
+  const e = 0.02;
+  return pieces.some(
+    (p) => p.y < below && x < p.x + p.w - e && x + w > p.x + e && z < p.z + p.d - e && z + d > p.z + e && y < p.y + p.h - e && y + h > p.y + e
+  );
 }

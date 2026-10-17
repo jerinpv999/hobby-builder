@@ -5,7 +5,7 @@ description: Work on the Hobby Builder app, a React and Three.js 3D brick builde
 
 # Hobby Builder
 
-A browser app: a resizable baseplate, about 240 pieces, a select/move/resize/recolor tool, lights, per-piece motion, walk-through camera, and GIF or video export. Everything is client-side React plus `three`; the only other package is `gifenc`.
+A browser app: a resizable baseplate, about 360 pieces, a select/move/resize/recolor tool, lights, per-piece motion, walk-through camera, and GIF or video export. Everything is client-side React plus `three`; the only other package is `gifenc`.
 
 ## Files
 
@@ -16,6 +16,8 @@ A browser app: a resizable baseplate, about 240 pieces, a select/move/resize/rec
 | `structureIO.js` | Save, load, validate, autosave (localStorage) |
 | `pieceAnimations.js` | Motion types and the pure function `poseAt(anim, rot, h, t)` |
 | `animation.js` | Video timeline, camera paths, GIF and WebM export |
+| Camera and placement | `orbit` has a look-at point (`tx,ty,tz`) moved by `panBy`; `cut` (Show layers) hides pieces with `y >= cut` via `holder.userData.cut`, and `stackInfo(..., {below, h})` stacks only on what is still shown |
+| Surface placement | `attach` (key Q): `updateHover` reads the hit normal and sets position, rotation and y; such pieces carry `att:true`, may sit on quarter-stud x/z and are skipped by `settle`/`stackInfo` lift; `boxHits` is the overlap test; saved as `att` |
 | `photo.js` | Still photos from preset or saved angles (`takePhotos`, `contactSheet`); hides ghost, selection and path helpers while shooting |
 | `thumbs.js` | Picker preview images (offscreen renderer, cached) |
 
@@ -95,7 +97,8 @@ Run these before handing work over; a build that compiles can still crash on the
 2. **Lint for undefined names and hook mistakes** with eslint (rules `no-undef`, `react/jsx-uses-vars`, `hooks/rules-of-hooks`).
 3. **Check pieces** in Node: build every piece in all 4 rotations, compute `Box3.setFromObject`, and flag anything that sticks out of `0..w`, `0..d`, goes below y 0, or has NaN. Test customizable pieces across every option combination at small and large sizes. Confirm every key in `TYPES` appears exactly once in `GROUPS`.
 4. **Headless run** with jsdom and a stand-in `WebGLRenderer` (alias `three` to a shim that re-exports three plus a fake renderer). Place, select, move, delete, undo, edit a setting and check `localStorage` autosave. In tests call a slider's React `onChange` prop directly; synthetic `input` events do not reach React reliably in jsdom.
-5. **Save round trip:** `serializeStructure` then `parseStructure` keeps `opts`, `dim` and `anim`, and tampered values are clamped.
+5. **Look at it.** Playwright's pre-installed Chromium can render with software WebGL (`--use-gl=swiftshader --enable-unsafe-swiftshader`, `executablePath: '/opt/pw-browsers/chromium'`; `npm i playwright-core --no-save`). Bundle a small page with esbuild (real `three`, not the test shim) that builds pieces into one contact-sheet canvas, screenshot it and read the PNG. Bounds checks cannot tell you a tree looks wrong. Use `setFromObject(obj, true)` (precise) in Node bounds checks; the default box inflates rotated parts.
+6. **Save round trip:** `serializeStructure` then `parseStructure` keeps `opts`, `dim` and `anim`, and tampered values are clamped.
 
 `gifenc` is CommonJS: Node cannot import its named exports directly, but bundlers (Vite, esbuild) can, so bundle tests that touch `animation.js`.
 

@@ -63,6 +63,10 @@ export function poseScene(env, plan, t, order) {
   if (ghost) ghost.visible = false;
   const n = plan.count;
   brickGroup.children.forEach((g) => {
+    if (g.userData.cut) {
+      g.visible = false; // cut-away pieces stay out of the film
+      return;
+    }
     if (plan.reveal !== "build") {
       g.visible = true;
       g.userData.revealed = true;

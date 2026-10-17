@@ -5,7 +5,7 @@ import { MOTIONS, AXES, cleanAnim, newAnim, applyPieceAnims, resetPieceAnims, pa
 import { planAnimation, playPreview, recordGif, recordVideo, downloadBlob } from "./animation";
 import { PRESET_VIEWS, PHOTO_SIZES, takePhotos, contactSheet, canvasToBlob } from "./photo";
 import { MIN_N, MAX_N, serializeStructure, parseStructure, loadSaved, autosave } from "./structureIO";
-import { BH, SH, studGeo, TYPES, GROUPS, buildPiece, stackInfo, settle, typeDims, cleanOpts, cleanDim } from "./hobbyBuilderPieces";
+import { BH, SH, studGeo, TYPES, GROUPS, buildPiece, stackInfo, boxHits, settle, typeDims, cleanOpts, cleanDim } from "./hobbyBuilderPieces";
 
 /* ---------- constants ---------- */
 const DEFAULT_N = 20; // starting baseplate: N x N studs
@@ -20,6 +20,33 @@ const COLORS = [
   { name: "Lime", hex: "#A6CA55" },
   { name: "White", hex: "#F4F4F4" },
   { name: "Black", hex: "#1B2A34" },
+  { name: "Dark Red", hex: "#72000F" },
+  { name: "Bright Light Blue", hex: "#6CB4EE" },
+  { name: "Dark Blue", hex: "#0A2940" },
+  { name: "Bright Light Yellow", hex: "#FFF289" },
+  { name: "Dark Green", hex: "#184923" },
+  { name: "Dark Orange", hex: "#A83C00" },
+  { name: "Dark Turquoise", hex: "#008B8B" },
+  { name: "Light Bluish Gray", hex: "#A3A3A3" },
+  { name: "Dark Bluish Gray", hex: "#4C5656" },
+  { name: "Sand Green", hex: "#7F9684" },
+  { name: "Sand Blue", hex: "#5C768D" },
+  { name: "Dark Tan", hex: "#8E764E" },
+  { name: "Tan", hex: "#D9C2A3" },
+  { name: "Medium Lavender", hex: "#9370DB" },
+  { name: "Lavender", hex: "#E6E6FA" },
+  { name: "Magenta", hex: "#9B2D55" },
+  { name: "Bright Pink", hex: "#FF69B4" },
+  { name: "Coral", hex: "#FF6F59" },
+  { name: "Nougat", hex: "#D08B5B" },
+  { name: "Medium Nougat", hex: "#AA7D55" },
+  { name: "Transparent Clear", hex: "#F5F5F5" },
+  { name: "Transparent Red", hex: "#E53935" },
+  { name: "Transparent Blue", hex: "#1E88E5" },
+  { name: "Transparent Green", hex: "#43A047" },
+  { name: "Transparent Yellow", hex: "#FDD835" },
+  { name: "Gold", hex: "#D4AF37" },
+  { name: "Silver", hex: "#C0C0C0" }
 ];
 
 const groupOf = {};
@@ -158,6 +185,14 @@ const SHORTCUTS = [
     ["Z / Shift+Z", "Zoom in / out"], ["F", "Walk mode on / off"], ["W A S D", "Walk (in walk mode)"],
     ["Q / E", "Down / up (in walk mode)"], ["← →", "Turn (in walk mode)"], ["Shift", "Move faster (in walk mode)"],
   ]],
+  ["Stick to surfaces", [
+    ["Q", "Turn Stick to surfaces on / off"], ["Point at a wall side", "The piece sticks to it, front facing out"],
+    ["Point at a top or underside", "Stands on it, or hangs from it"], ["Select, then Raise / Lower", "Nudge a stuck-on piece a quarter layer"],
+  ]],
+  ["Pan and build inside", [
+    ["Right-drag", "Slide the view over the plate"], ["Ctrl+arrows", "Pan the view (the Pan buttons do the same)"],
+    ["Page Down / Up", "Show one layer less / more (cut the roof away)"], ["End", "Show every layer again"], ["5", "Fit all also re-centres the view"],
+  ]],
   ["Baseplate and files", [
     ["+ or =", "Expand the baseplate"], ["- or _", "Shrink the baseplate"], ["Ctrl+S", "Save JSON"], ["Ctrl+O", "Load JSON"],
   ]],
@@ -284,14 +319,17 @@ export default function HobbyBuilder() {
   const [typeKey, setTypeKey] = useState("b2x4");
   const [rot, setRot] = useState(0);
   const [mode, setMode] = useState("build");
+  const [attach, setAttach] = useState(false); // stick pieces onto the sides, tops and undersides of what is already built
+  const [cut, setCut] = useState(null); // null = show everything; a number hides every piece that starts at or above that layer
 
+  const topLayer = bricks.reduce((m, b) => Math.max(m, Math.ceil(b.y + b.h)), 0); // highest layer in the build
   const type = TYPES[typeKey];
   const opts = type.params ? cleanOpts(type, optsByType[typeKey]) : null; // null for ordinary pieces
   const dim = dimByType[typeKey] || null; // stretched size, if any
   const baseDm = typeDims(type, opts); // size before stretching
   const dm = typeDims(type, opts, dim); // footprint, height and stackability for these settings
   const [w, d] = rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
-  live.current = { N, bricks, color, type, rot, w, d, dm, opts, dim, mode, pathPick };
+  live.current = { N, bricks, cut, attach, color, type, rot, w, d, dm, opts, dim, mode, pathPick };
 
   /* scene setup (once) */
   useEffect(() => {
@@ -325,15 +363,15 @@ export default function HobbyBuilder() {
     scene.add(brickGroup);
 
     /* orbit camera (hand-rolled so no extra imports are needed) */
-    const orbit = { theta: 0.8, phi: 0.95, radius: 30 };
+    const orbit = { theta: 0.8, phi: 0.95, radius: 30, tx: 0, ty: 1.5, tz: 0 }; // tx, ty, tz: the point the camera looks at (moved by panning)
     const updateCamera = () => {
-      const { theta, phi, radius } = orbit;
+      const { theta, phi, radius, tx, ty, tz } = orbit;
       camera.position.set(
-        radius * Math.sin(phi) * Math.sin(theta),
-        radius * Math.cos(phi),
-        radius * Math.sin(phi) * Math.cos(theta)
+        tx + radius * Math.sin(phi) * Math.sin(theta),
+        ty + radius * Math.cos(phi),
+        tz + radius * Math.sin(phi) * Math.cos(theta)
       );
-      camera.lookAt(0, 1.5, 0);
+      camera.lookAt(tx, ty, tz);
     };
     updateCamera();
 
@@ -363,11 +401,16 @@ export default function HobbyBuilder() {
       const r = renderer.domElement.getBoundingClientRect();
       ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
       ray.setFromCamera(ndc, camera);
-      return ray.intersectObjects([base, brickGroup], true)[0] || null;
+      // pieces that are cut away stay invisible to the pointer
+      const shown = (o) => {
+        for (let q = o; q; q = q.parent) if (!q.visible) return false;
+        return true;
+      };
+      return ray.intersectObjects([base, brickGroup], true).find((h) => shown(h.object)) || null;
     };
 
     const updateHover = (e) => {
-      const { N, bricks, w, d, mode } = live.current;
+      const { N, bricks, w, d, mode, cut, dm, attach, rot: curRot } = live.current;
       const ghost = three.current.ghost;
       if (walk.active) {
         if (ghost) ghost.visible = false;
@@ -380,11 +423,53 @@ export default function HobbyBuilder() {
         return;
       }
       const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      if (attach && hit.object.userData.id) {
+        /* stick to the surface that was pointed at: a side (back against it, front facing out), a top, or an underside */
+        const shown = cut == null ? bricks : bricks.filter((b) => b.y < cut);
+        const q = (v, k) => Math.round(v * k) / k;
+        let r = curRot;
+        let x;
+        let z;
+        let y;
+        const turned = (rr) => (rr % 2 ? [dm.d, dm.w] : [dm.w, dm.d]);
+        const px = hit.point.x + N / 2;
+        const pz = hit.point.z + N / 2;
+        if (Math.abs(n.y) > 0.6) {
+          const [aw, ad] = turned(r);
+          x = q(px - aw / 2, 2);
+          z = q(pz - ad / 2, 2);
+          y = n.y > 0 ? q(hit.point.y / BH, 4) : q(hit.point.y / BH, 4) - dm.h; // top: stand on it; underside: hang from it
+        } else if (Math.abs(n.x) > Math.abs(n.z)) {
+          r = n.x > 0 ? 1 : 3; // the piece's front turns to face away from the wall
+          const [aw, ad] = turned(r);
+          x = n.x > 0 ? q(px, 4) : q(px, 4) - aw;
+          z = q(pz - ad / 2, 2);
+          y = q(hit.point.y / BH - dm.h / 2, 4);
+        } else {
+          r = n.z > 0 ? 0 : 2;
+          const [aw, ad] = turned(r);
+          z = n.z > 0 ? q(pz, 4) : q(pz, 4) - ad;
+          x = q(px - aw / 2, 2);
+          y = q(hit.point.y / BH - dm.h / 2, 4);
+        }
+        y = Math.max(0, y);
+        const [aw, ad] = turned(r);
+        const inside = x >= -0.001 && z >= -0.001 && x + aw <= N + 0.001 && z + ad <= N + 0.001;
+        const ok = inside && !boxHits(shown, x, z, aw, ad, y, dm.h);
+        if (r !== curRot) setRot(r);
+        three.current.hover = { x, z, y, w: aw, d: ad, rot: r, att: true, ok };
+        if (ghost) {
+          ghost.position.set(x - N / 2, y * BH, z - N / 2);
+          ghost.visible = r === curRot; // the turned ghost is built next
+          three.current.ghostMat.color.set(ok ? live.current.color : "#FF4D4D");
+        }
+        return;
+      }
       const p = hit.point.clone().addScaledVector(n, 0.1);
       const x = Math.min(Math.max(Math.round(p.x + N / 2 - w / 2), 0), Math.max(0, N - w));
       const z = Math.min(Math.max(Math.round(p.z + N / 2 - d / 2), 0), Math.max(0, N - d));
-      const { lvl: y, blocked } = stackInfo(bricks, x, z, w, d);
-      three.current.hover = { x, z, y, ok: !blocked };
+      const { lvl: y, blocked } = stackInfo(bricks, x, z, w, d, { below: cut == null ? undefined : cut, h: dm.h });
+      three.current.hover = { x, z, y, att: false, ok: !blocked };
       if (ghost) {
         ghost.position.set(x - N / 2, y * BH, z - N / 2);
         ghost.visible = true;
@@ -396,7 +481,7 @@ export default function HobbyBuilder() {
     const dom = renderer.domElement;
     dom.style.touchAction = "none";
     const onDown = (e) => {
-      down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, box: live.current.mode === "select" && e.shiftKey && !walk.active, add: e.ctrlKey || e.metaKey };
+      down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, pan: e.button === 1 || e.button === 2, box: live.current.mode === "select" && e.shiftKey && !walk.active, add: e.ctrlKey || e.metaKey };
       dom.setPointerCapture(e.pointerId);
     };
     const onMove = (e) => {
@@ -407,6 +492,8 @@ export default function HobbyBuilder() {
           if (down.box) {
             const r = dom.getBoundingClientRect(); // Shift+drag draws a selection box instead of orbiting
             setMarquee({ x0: down.x - r.left, y0: down.y - r.top, x1: e.clientX - r.left, y1: e.clientY - r.top });
+          } else if (down.pan && !walk.active) {
+            panBy((-(e.clientX - down.lx) * orbit.radius * 0.0016), ((e.clientY - down.ly) * orbit.radius * 0.0016)); // right-drag slides the view over the plate
           } else if (walk.active) {
             walk.yaw -= (e.clientX - down.lx) * 0.004; // drag like Street View: the scene follows your pointer
             walk.pitch = Math.min(1.3, Math.max(-1.3, walk.pitch + (e.clientY - down.ly) * 0.004));
@@ -423,6 +510,15 @@ export default function HobbyBuilder() {
         return;
       }
       updateHover(e);
+    };
+    /* slide the point the camera looks at: sideways (dx) and along the way the camera faces (dz) */
+    const panBy = (dx, dz, dy = 0) => {
+      const lim = live.current.N / 2 + 12;
+      const { theta } = orbit;
+      orbit.tx = Math.min(lim, Math.max(-lim, orbit.tx + dx * Math.cos(theta) - dz * Math.sin(theta)));
+      orbit.tz = Math.min(lim, Math.max(-lim, orbit.tz - dx * Math.sin(theta) - dz * Math.cos(theta)));
+      orbit.ty = Math.min(30, Math.max(0, orbit.ty + dy));
+      updateCamera();
     };
     const removeAt = (e) => {
       const hit = pick(e);
@@ -444,12 +540,17 @@ export default function HobbyBuilder() {
       });
     };
     const placeAt = (e) => {
-      const { color, type, rot, w, d, dm, opts, dim } = live.current;
+      const { color, type, rot, w, d, dm, opts, dim, cut } = live.current;
       updateHover(e);
       const h = three.current.hover;
-      if (h && h.ok)
+      if (h && h.ok && h.att) {
+        setBricks((prev) => [
+          ...prev,
+          { id: ++idCounter.current, type: type.key, rot: h.rot, x: h.x, z: h.z, y: h.y, w: h.w, d: h.d, h: dm.h, top: dm.top, color, att: true, ...(opts ? { opts } : {}), ...(dim ? { dim } : {}) },
+        ]);
+      } else if (h && h.ok)
         setBricks((prev) => {
-          const { lvl, blocked } = stackInfo(prev, h.x, h.z, w, d);
+          const { lvl, blocked } = stackInfo(prev, h.x, h.z, w, d, { below: cut == null ? undefined : cut, h: dm.h });
           if (blocked) return prev;
           return [
             ...prev,
@@ -465,6 +566,7 @@ export default function HobbyBuilder() {
       const y1 = Math.max(d0.y, e.clientY) - r.top;
       const ids = [];
       brickGroup.children.forEach((hd) => {
+        if (!hd.visible) return;
         const bs = hd.userData.base;
         const v = new THREE.Vector3(bs.x, bs.y + (hd.userData.h * BH) / 2, bs.z).project(camera); // the piece's middle on screen
         const sx = ((v.x + 1) / 2) * r.width;
@@ -481,7 +583,7 @@ export default function HobbyBuilder() {
         boxSelect(d0, e);
         return;
       }
-      const wasClick = d0 && !d0.moved;
+      const wasClick = d0 && !d0.moved && !d0.pan;
       if (!wasClick || walk.active) return; // no placing while walking
       if (live.current.mode === "remove") removeAt(e);
       else if (live.current.mode === "select") selectAt(e);
@@ -498,7 +600,7 @@ export default function HobbyBuilder() {
         applyWalk();
         return;
       }
-      orbit.radius = Math.min(40 + live.current.N * 1.5, Math.max(10, orbit.radius + e.deltaY * 0.02));
+      orbit.radius = Math.min(40 + live.current.N * 1.5, Math.max(4, orbit.radius + e.deltaY * 0.02));
       updateCamera();
     };
     dom.addEventListener("pointerdown", onDown);
@@ -506,6 +608,8 @@ export default function HobbyBuilder() {
     dom.addEventListener("pointerup", onUp);
     dom.addEventListener("pointerleave", onLeave);
     dom.addEventListener("wheel", onWheel, { passive: false });
+    const noMenu = (e) => e.preventDefault(); // right-drag pans, so no browser menu
+    dom.addEventListener("contextmenu", noMenu);
 
     let raf;
     const loop = () => {
@@ -538,7 +642,7 @@ export default function HobbyBuilder() {
     };
     loop();
 
-    three.current = { scene, camera, renderer, brickGroup, base, sun, orbit, updateCamera, walk, applyWalk, placeAt, removeAt, selectAt, hemi, lightGroup, playing: false, playStart: 0, selBoxes: [], pathViz: null, lastPointer: null, ghost: null, hover: null };
+    three.current = { scene, camera, renderer, brickGroup, base, sun, orbit, updateCamera, panBy, walk, applyWalk, placeAt, removeAt, selectAt, hemi, lightGroup, playing: false, playStart: 0, selBoxes: [], pathViz: null, lastPointer: null, ghost: null, hover: null };
 
     return () => {
       cancelAnimationFrame(raf);
@@ -548,6 +652,7 @@ export default function HobbyBuilder() {
       dom.removeEventListener("pointerup", onUp);
       dom.removeEventListener("pointerleave", onLeave);
       dom.removeEventListener("wheel", onWheel);
+      dom.removeEventListener("contextmenu", noMenu);
       renderer.dispose();
       el.removeChild(dom);
     };
@@ -585,6 +690,10 @@ export default function HobbyBuilder() {
         t.walk.keys.add(k);
         return;
       }
+      if (mod && k.startsWith("arrow") && !e.shiftKey) {
+        e.preventDefault();
+        return A.pan(k === "arrowleft" ? -1 : k === "arrowright" ? 1 : 0, k === "arrowup" ? 1 : k === "arrowdown" ? -1 : 0);
+      }
       if (mod) {
         const map = { z: () => (e.shiftKey ? A.redo() : A.undo()), y: A.redo, s: A.save, o: A.openFile, k: A.focusSearch, a: A.selectAll, d: A.duplicate };
         if (map[k]) {
@@ -621,6 +730,10 @@ export default function HobbyBuilder() {
         case "1": case "2": case "3": case "4": return A.view(Number(k) - 1);
         case "0": return A.resetView();
         case "5": return A.fit();
+        case "q": return A.toggleAttach();
+        case "pageup": return go(() => A.cutBy(-1));
+        case "pagedown": return go(() => A.cutBy(1));
+        case "end": return go(() => A.cutBy(0));
         case "arrowleft": return go(() => (A.hasSel ? A.moveSel(-1, 0, e.shiftKey) : A.orbitBy(-1, 0, e.shiftKey)));
         case "arrowright": return go(() => (A.hasSel ? A.moveSel(1, 0, e.shiftKey) : A.orbitBy(1, 0, e.shiftKey)));
         case "arrowup": return go(() => (A.hasSel ? A.moveSel(0, -1, e.shiftKey) : A.orbitBy(0, -1, e.shiftKey)));
@@ -682,6 +795,8 @@ export default function HobbyBuilder() {
       g.position.set(-b.w / 2, 0, -b.d / 2);
       holder.add(g);
       holder.userData = { pid: b.id, baseY: b.y * BH, base, rot: b.rot, h: b.h, anim: b.anim || null };
+      holder.userData.cut = cut != null && b.y >= cut; // cut away the roof and upper floors to work inside
+      holder.visible = !holder.userData.cut;
       brickGroup.add(holder);
     }
     // real lights for the lamps (only the brightest few, to keep the scene fast)
@@ -690,7 +805,7 @@ export default function HobbyBuilder() {
     const lamps = [];
     for (const b of bricks) {
       const ty = TYPES[b.type];
-      if (!ty.light) continue;
+      if (!ty.light || (cut != null && b.y >= cut)) continue;
       const L = ty.light(cleanOpts(ty, b.opts), b.color);
       if (L.power > 0) lamps.push({ b, L });
     }
@@ -709,7 +824,7 @@ export default function HobbyBuilder() {
       }
       lg.add(light);
     });
-  }, [bricks, N]);
+  }, [bricks, N, cut]);
 
   /* day and night */
   useEffect(() => {
@@ -819,6 +934,12 @@ export default function HobbyBuilder() {
     t.ghostMat = new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.55 });
     const g = buildPiece(type, color, 0, rot, t.ghostMat, opts, dim);
     g.visible = false;
+    const hv = t.hover;
+    if (hv && mode === "build" && hv.att) {
+      g.position.set(hv.x - live.current.N / 2, hv.y * BH, hv.z - live.current.N / 2); // keep the preview in place after it turned to face out
+      g.visible = true;
+      t.ghostMat.color.set(hv.ok ? color : "#FF4D4D");
+    }
     t.scene.add(g);
     t.ghost = g;
   }, [typeKey, rot, color, mode, JSON.stringify(opts), JSON.stringify(dim)]);
@@ -913,6 +1034,8 @@ export default function HobbyBuilder() {
     }
     const pts = [];
     for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) pts.push(new THREE.Vector3(x, y, z));
+    const mid = box.getCenter(new THREE.Vector3()); // look at the middle of the build, so panning is reset too
+    Object.assign(t.orbit, { tx: mid.x, ty: Math.max(0, mid.y), tz: mid.z });
     const v = new THREE.Vector3();
     const fits = (r) => {
       t.orbit.radius = r;
@@ -953,7 +1076,7 @@ export default function HobbyBuilder() {
     setCamMode(m);
     if (m === "tour" && !three.current.walk.active) toggleWalk();
   };
-  const addShot = () => setShots((p) => (p.length < 8 ? [...p, { ...three.current.orbit }] : p));
+  const addShot = () => setShots((p) => (p.length < 8 ? [...p, (({ theta, phi, radius }) => ({ theta, phi, radius }))(three.current.orbit)] : p));
 
   /* preview the animation, or record it and download it */
   const exportAnimation = async (kind) => {
@@ -990,7 +1113,7 @@ export default function HobbyBuilder() {
       if (t.walk.active) t.applyWalk();
       else t.updateCamera();
       t.brickGroup.children.forEach((g) => {
-        g.visible = true;
+        g.visible = !g.userData.cut;
         g.userData.revealed = true;
         g.position.y = g.userData.baseY;
       });
@@ -1154,10 +1277,19 @@ export default function HobbyBuilder() {
     if (!sel.length) return;
     const ids = new Set(selIds);
     setBricks((prev) => {
-      const moved = prev.map((b) => (ids.has(b.id) ? { ...b, x: b.x + dx * step, z: b.z + dz * step } : b));
+      const moved = prev.map((b) => {
+        if (!ids.has(b.id)) return b;
+        const st = b.att ? step : Math.max(1, Math.round(step)); // only surface-attached pieces can sit between studs
+        return { ...b, x: b.x + dx * st, z: b.z + dz * st };
+      });
       if (moved.some((b) => ids.has(b.id) && (b.x < 0 || b.z < 0 || b.x + b.w > N || b.z + b.d > N))) return prev; // stay on the baseplate
       return settle(moved);
     });
+  };
+  const raiseSel = (dir) => {
+    // move surface-attached pieces up or down a quarter layer (other pieces always rest on what is under them)
+    const ids = new Set(selIds);
+    setBricks((prev) => prev.map((b) => (ids.has(b.id) && b.att ? { ...b, y: Math.max(0, b.y + dir * 0.25) } : b)));
   };
   const rotateSel = (dir) => {
     if (!sel.length) return;
@@ -1175,8 +1307,8 @@ export default function HobbyBuilder() {
             rot: r,
             w: nw,
             d: nd,
-            x: Math.min(Math.max(0, Math.round(b.x + b.w / 2 - nw / 2)), Math.max(0, N - nw)),
-            z: Math.min(Math.max(0, Math.round(b.z + b.d / 2 - nd / 2)), Math.max(0, N - nd)),
+            x: Math.min(Math.max(0, b.att ? Math.round((b.x + b.w / 2 - nw / 2) * 4) / 4 : Math.round(b.x + b.w / 2 - nw / 2)), Math.max(0, N - nw)),
+            z: Math.min(Math.max(0, b.att ? Math.round((b.z + b.d / 2 - nd / 2) * 4) / 4 : Math.round(b.z + b.d / 2 - nd / 2)), Math.max(0, N - nd)),
           };
         })
       )
@@ -1337,7 +1469,26 @@ export default function HobbyBuilder() {
     },
     view: (i) => setView(Object.values(VIEWS)[i]),
     fit: () => fitAll(),
-    resetView: () => setView({ theta: 0.8, phi: 0.95, radius: Math.max(30, N * 1.5) }),
+    toggleAttach: () => {
+      setAttach((a) => !a);
+      setMode("build");
+    },
+    resetView: () => setView({ theta: 0.8, phi: 0.95, radius: Math.max(30, N * 1.5), tx: 0, ty: 1.5, tz: 0 }),
+    pan: (dx, dz, dy = 0) => {
+      const t = three.current;
+      if (t.walk.active) return;
+      const k = Math.max(1, t.orbit.radius * 0.08);
+      t.panBy(dx * k, dz * k, dy * k * 0.5);
+    },
+    cutBy: (dir) => {
+      // dir 1 = show one layer less, -1 = one layer more, 0 = show everything
+      setCut((c) => {
+        if (dir === 0) return null;
+        const cur = c == null ? topLayer : c;
+        const nx = Math.max(1, Math.min(topLayer, cur - dir));
+        return nx >= topLayer ? null : nx;
+      });
+    },
     orbitBy: (dx, dy, big) => {
       const t = three.current;
       const step = big ? 0.4 : 0.12;
@@ -1347,7 +1498,7 @@ export default function HobbyBuilder() {
     },
     zoom: (dir) => {
       const t = three.current;
-      t.orbit.radius = Math.min(40 + N * 1.5, Math.max(10, t.orbit.radius * (dir > 0 ? 1.12 : 0.89)));
+      t.orbit.radius = Math.min(40 + N * 1.5, Math.max(4, t.orbit.radius * (dir > 0 ? 1.12 : 0.89)));
       t.updateCamera();
     },
     walk: toggleWalk,
@@ -1483,10 +1634,17 @@ export default function HobbyBuilder() {
                   <button className="btn sm" onClick={() => moveSel(0, 1, moveStep)} aria-label="Move forward" title="Forward (arrow key)">▼</button>
                 </div>
                 <div className="chips" style={{ marginBottom: 8 }}>
-                  {[1, 4].map((n) => (
+                  {[0.25, 1, 4].map((n) => (
                     <button key={n} className={"chip sm" + (moveStep === n ? " on" : "")} aria-pressed={moveStep === n} onClick={() => setMoveStep(n)}>{n} stud{n > 1 ? "s" : ""} per step</button>
                   ))}
                 </div>
+                {sel.some((b) => b.att) && (
+                  <div className="row" style={{ marginBottom: 8 }}>
+                    <button className="btn sm" onClick={() => raiseSel(1)} title="Raise surface-attached pieces a quarter layer">Raise</button>
+                    <button className="btn sm" onClick={() => raiseSel(-1)} title="Lower surface-attached pieces a quarter layer">Lower</button>
+                    <span className="note" style={{ margin: 0 }}>¼ layer · stuck-on pieces only</span>
+                  </div>
+                )}
                 <div className="row" style={{ marginBottom: 0 }}>
                   <button className="btn sm" onClick={() => rotateSel(1)} title="Turn (R)">Rotate</button>
                   <button className="btn sm" onClick={duplicateSel} title="Duplicate (Ctrl+D)">Duplicate</button>
@@ -1629,6 +1787,7 @@ export default function HobbyBuilder() {
         <button className={on(playing).trim()} onClick={togglePlay} title="Play or pause piece motion (T)">{playing ? "Pause" : "Play"}</button>
 
         <div className="grp">
+          <button className={on(attach).trim()} onClick={() => actions.current.toggleAttach()} aria-pressed={attach} title="Stick to surfaces (Q): place pieces on the side, top or underside of walls and other pieces. On a side the piece turns to face out.">Stick to surfaces</button>
           <button className="btn" onClick={() => setRot((r) => (r + 1) % 4)} title="Rotate the piece (R, or Shift+R the other way)">Rotate</button>
           <button className="btn" onClick={undo} disabled={!hist.undo} title="Undo (Ctrl+Z)">Undo</button>
           <button className="btn" onClick={redo} disabled={!hist.redo} title="Redo (Ctrl+Y or Ctrl+Shift+Z)">Redo</button>
@@ -1644,6 +1803,25 @@ export default function HobbyBuilder() {
             ))}
           </div>
         </div>
+
+        <div className="grp" title="Slide the view over the plate: right-drag, or Ctrl+arrow keys">
+          <span className="lbl">Pan</span>
+          <div className="seg" role="group" aria-label="Pan the view">
+            <button className="btn sm" onClick={() => actions.current.pan(-1, 0)} aria-label="Pan left">◀</button>
+            <button className="btn sm" onClick={() => actions.current.pan(0, 1)} aria-label="Pan forward">▲</button>
+            <button className="btn sm" onClick={() => actions.current.pan(0, -1)} aria-label="Pan back">▼</button>
+            <button className="btn sm" onClick={() => actions.current.pan(1, 0)} aria-label="Pan right">▶</button>
+            <button className="btn sm" onClick={() => actions.current.pan(0, 0, 1)} aria-label="Move view up">⤒</button>
+            <button className="btn sm" onClick={() => actions.current.pan(0, 0, -1)} aria-label="Move view down">⤓</button>
+          </div>
+        </div>
+
+        <label className="grp" title="Hide the roof and upper floors so you can place pieces inside (Page Up / Page Down, End shows all)">
+          <span className="lbl">Show layers</span>
+          <input type="range" min={1} max={Math.max(1, topLayer)} step={1} disabled={topLayer < 2} value={cut == null ? Math.max(1, topLayer) : Math.min(cut, topLayer)} aria-label="Show layers up to"
+            onChange={(e) => setCut(Number(e.target.value) >= topLayer ? null : Number(e.target.value))} style={{ width: 90 }} />
+          <span>{cut == null ? "all" : cut}</span>
+        </label>
 
         <button className={on(walkMode).trim()} onClick={toggleWalk} title="Walk through your build like a home tour (F): W A S D to move, drag to look">Walk</button>
 
@@ -1756,7 +1934,7 @@ export default function HobbyBuilder() {
             <span>{bricks.length} piece{bricks.length === 1 ? "" : "s"}</span>
             {bricks.some((b) => b.anim) && <span>{bricks.filter((b) => b.anim).length} with motion</span>}
             <span className="hint">
-              {walkMode ? "Open Animate to save a stop in each room" : "Click or Space to place · Drag to orbit · R rotate · ? all shortcuts"}
+              {walkMode ? "Open Animate to save a stop in each room" : "Click or Space to place · Drag to orbit · Right-drag to pan · R rotate · ? all shortcuts"}
             </span>
           </div>
 
