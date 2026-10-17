@@ -5,7 +5,7 @@ A 3D brick builder that runs in the browser, made with React and Three.js. Place
 ## Features
 
 - **Build in 3D.** Click to place a piece, drag to orbit, scroll to zoom. A translucent preview follows the cursor and snaps to the stud grid.
-- **Around 120 pieces** in 15 groups: bricks, flat bricks and tiles, windows and doors, roofs, logs, trees, plants and stones, people, vehicles, two-wheelers, railway, water and boats, furniture, home appliances and kitchen utensils.
+- **Around 385 pieces** in 15 groups: bricks, flat bricks and tiles, windows and doors, roofs, logs, trees, plants and stones, people, vehicles, two-wheelers, railway, water and boats, furniture, home appliances and kitchen utensils.
 - **Stacking.** Pieces stack on top of each other and drop down if what is under them is removed. Pieces that can't be built on (a roof, a tree, a car) show a red preview.
 - **Rotation** in 90° steps.
 - **Select tool.** Pick one or many pieces, then move, rotate, duplicate, delete, recolor, resize, change their settings or give them motion.
@@ -265,6 +265,60 @@ Walk mode (**F**) now places pieces too, so you can furnish a room from the insi
 - if you aim a little low and the piece would clip the floor or a ledge, it is lifted until it rests clear;
 - **R** turns the piece, the piece settings card is shown, and a red preview means the spot is taken.
 
+## Old-style (Kerala) home pieces
+
+The **Old-style and Kerala home** group has four customizable pieces:
+
+- **Kerala curved-tile roof**: a ridge roof (two slopes) or a one-slope roof for a sit-out, with a sweeping curved profile (Straight, Gentle or Strong eave curve). The surface can be curved clay tiles, flat Mangalore tiles or thatch, and you can switch the wooden eave and gable boards, the louvred gable end and the ridge tiles on or off. Pick a terracotta or brown colour for the classic look. Length, span and ridge height are set in studs.
+- **Old-style pillar**: a round (turned), square (panelled) or octagonal shaft, 2 to 6 layers tall, with a plain, stepped or lotus base and a plain, wooden-bracket or lotus top. It can be 1 or 2 studs thick, and roofs and beams stack on top.
+- **Sit-out (verandah)**: a raised floor with 2 to 8 front pillars of the style you choose, a parapet wall, wooden beams, front steps and built-in benches. Put a Kerala roof (one slope) on top, with the high edge toward the house.
+- **Sit-out bench (chaarupadi)**: a long wooden bench with a leaning back and turned legs.
+
+## Lounge chairs, stone brick and hanging decor
+
+Three more groups:
+
+- **Lounge chairs and benches**: a recliner (sit, recline or lie flat, with a footrest), a planter's easy chair with long arms, a sun lounger with a tilting back, a rocking chair that really rocks, a chaise lounge, an egg chair, a bean bag, a porch bench (2 to 6 studs long, optional cushion) and a porch swing that sways. Cushions take the piece colour.
+- **Stone and masonry**: **Stone brick** in rough stone, red laterite, cobble or granite blocks, 1 to 6 studs wide, 1 or 2 layers tall. Choose natural stone colour or your chosen colour. It has studs, so you can build on top of it.
+- **Hanging decor**: **Hanging pots** (1 to 3 pots on a wooden rail, fern, trailing vine or flowers, gentle sway) and **Hanging diya** (single diya, Kerala hanging lamp or a ring of five). Diyas glow and their flames flicker. Set how far they hang with the usual hang-length setting.
+
+Rocking, swinging and swaying are part of the piece and show in the live view and in animation previews. Pieces now total about 385.
+
+## More cars and a car porch
+
+The **Road vehicles** group gains four body styles, all without badges or brand marks: **Luxury sedan** (long body, chrome trim), **Sport sedan** (low, with a spoiler and bonnet vent), **Mid-size 4x4** and **Full-size 4x4** (raised, with wheel flares, bull bar, roof rack, spare wheel and, on the full-size one, side steps and a snorkel). Recolor them like any car.
+
+**Car porch** (group *Car porch and garage*) is a covered parking spot for 1 to 3 cars: set the height, the roof (flat slab, sloping tiles, gable ridge or open beams), square or round pillars and whether it has a paved floor. Park a car inside it, or stick it against a house wall.
+
+## Accounts, sessions and workspaces
+
+The app can now sign people in and keep each person's builds in the cloud, in **workspaces**. Everything is optional: `HobbyBuilder.jsx` on its own still works with the browser autosave.
+
+**What you get**
+- **Create account / Sign in** screen (name, email, password of 8 or more characters). Passwords are stored only as bcrypt hashes.
+- **Sessions**: a signed, HttpOnly cookie that lasts 14 days and renews while you use the app. **Sign out** ends it on the server.
+- **Workspaces**: a menu in the top bar lists your workspaces. Create, open, rename, duplicate and delete them (up to 25 each). Each one keeps its own pieces, baseplate size and animation setup.
+- **Autosave**: every change is saved to the server about a second and a half later. The bar shows "Saving…" and "All changes saved", and retries if the connection drops. Your first workspace starts from whatever your browser had autosaved.
+- Your workspaces are private. Other accounts can't list, open, change or delete them.
+
+**Files**
+| File | What it is |
+|---|---|
+| `AuthGate.jsx` | The new entry point: sign-in screen, top bar, workspace menu and autosave. Render this instead of `HobbyBuilder`. |
+| `api.js` | The calls to the server. |
+| `server/` | The Node server: `server.js` (start), `app.js` (routes), `db.js` (MongoDB), `test.mjs` (tests). |
+
+**Running it**
+1. In `server/`, run `npm install`. Copy `.env.example` to `.env` and fill in `MONGODB_URI` (your Atlas connection string), `SESSION_SECRET` (a long random string) and, optionally, `MONGODB_DB`. In Atlas, allow your server's IP address under Network Access.
+2. `npm start` runs the API on port 3001. Leave `MONGODB_URI` empty to try it with a temporary in-memory database.
+3. Point your app's entry at `AuthGate` (`import App from "./AuthGate"`). In development, proxy `/api` to `http://localhost:3001` (with Vite: `server: { proxy: { "/api": "http://localhost:3001" } }`). For production, build the web app into `dist/` next to `server/` and the server will serve it, so the page and the API share one address.
+4. Behind HTTPS set `NODE_ENV=production` so the session cookie is marked Secure.
+5. `npm test` in `server/` runs the API tests.
+
+**The API** (all under `/api`, JSON): `POST auth/register`, `POST auth/login`, `POST auth/logout`, `GET auth/me`, `GET workspaces`, `POST workspaces`, `GET/PUT/DELETE workspaces/:id`, `POST workspaces/:id/duplicate`.
+
+**Security notes**: logins and sign-ups are rate limited, writes from other sites are refused, every workspace query is scoped to the signed-in user, and saved data is limited to 5 MB. Keep `.env` out of version control (`server/.gitignore` already does).
+
 ## Sticking pieces onto walls, tops and undersides
 
 Turn on **Stick to surfaces** (toolbar button, or **Q**) and point at any piece already built.
@@ -332,7 +386,7 @@ Tips:
 
 ## Piece groups
 
-The app has about 370 pieces. The **All pieces** window (Shift+B) shows every one of them, and the sidebar groups them like this:
+The app has about 375 pieces. The **All pieces** window (Shift+B) shows every one of them, and the sidebar groups them like this:
 
 | Group | Pieces |
 |---|---|

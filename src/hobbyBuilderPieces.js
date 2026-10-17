@@ -4555,6 +4555,765 @@ regCustom("exhaustfan", "Exhaust fan", [speedParam], () => ({ w: 1, d: 1, h: 1, 
   return g;
 });
 
+/* ===================== old-style (Kerala) home: curved tile roof, turned pillars, sit-out ===================== */
+const darkWood = mat("#5C3A1E", { roughness: 0.6 });
+const midWood = mat("#8A5A2F", { roughness: 0.6 });
+const latheGeos = {};
+const lathe = (g, key, pts, m, x, y, z) => {
+  if (!latheGeos[key]) latheGeos[key] = new THREE.LatheGeometry(pts.map(([r, h]) => new THREE.Vector2(r, h)), 24);
+  return add(g, latheGeos[key], m, x, y, z);
+};
+const waveGeos = {};
+// a strip of roofing that is ribbed across its width: half-round clay tiles, flat Mangalore tiles or thatch
+const ribbedStrip = (kind, len, L) => {
+  const key = `${kind}|${len}|${L.toFixed(3)}`;
+  if (!waveGeos[key]) {
+    const n = Math.max(2, Math.round(len / (kind === "thatch" ? 0.5 : kind === "flat" ? 0.5 : 0.32)));
+    const amp = kind === "clay" ? 0.13 : kind === "flat" ? 0.06 : 0.08;
+    const base = 0.05;
+    const top = [];
+    for (let k = 0; k < n; k++)
+      for (let s = 0; s < 6; s++) {
+        const u = s / 6;
+        const wave = kind === "clay" ? Math.sin(Math.PI * u) : kind === "flat" ? (u < 0.17 || u > 0.83 ? 0 : 1) : Math.sin(Math.PI * u) ** 0.5;
+        top.push([((k + u) / n) * len, base + amp * wave]);
+      }
+    top.push([len, base]);
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 0);
+    sh.lineTo(len, 0);
+    for (let i = top.length - 1; i >= 0; i--) sh.lineTo(top[i][0], top[i][1]);
+    waveGeos[key] = new THREE.ExtrudeGeometry(sh, { depth: L, bevelEnabled: false });
+  }
+  return waveGeos[key];
+};
+
+regCustom("keralaroof", "Kerala curved-tile roof", [
+  { key: "len", label: "Length (ridge)", kind: "num", min: 2, max: 16, step: 1, def: 6 },
+  { key: "span", label: "Span (width)", kind: "num", min: 2, max: 10, step: 1, def: 5 },
+  { key: "pitch", label: "Ridge height", kind: "num", min: 1, max: 5, step: 0.5, def: 2.5 },
+  { key: "shape", label: "Shape", kind: "sel", def: "gable", options: [["gable", "Two slopes"], ["lean", "One slope (sit-out)"]] },
+  { key: "curve", label: "Eave curve", kind: "sel", def: "gentle", options: [["straight", "Straight"], ["gentle", "Gentle curve"], ["strong", "Strong curve"]] },
+  { key: "surface", label: "Surface", kind: "sel", def: "clay", options: [["clay", "Curved clay tiles"], ["flat", "Flat Mangalore tiles"], ["thatch", "Thatch"]] },
+  { key: "fascia", label: "Wooden eave board", kind: "tog", def: true },
+  { key: "vent", label: "Gable louvre", kind: "tog", def: true },
+  { key: "cap", label: "Ridge tiles", kind: "tog", def: true },
+], (o) => ({ w: o.len, d: o.span, h: o.pitch, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const { len, span } = o;
+  const H = o.pitch * BH;
+  const Hb = H - 0.3; // the tiles add a little height on top of the body
+  const p = { straight: 1, gentle: 1.35, strong: 1.8 }[o.curve];
+  const N = 8;
+  const lean = o.shape === "lean";
+  const prof = [];
+  const e0 = 0.1; // the eave edge stands a little off the ground, so the tiles can sink into the body
+  if (lean) for (let i = 0; i <= N; i++) { const t = i / N; prof.push([t * span, e0 + (Hb - e0) * (1 - t) ** p]); }
+  else {
+    for (let i = 0; i <= N; i++) { const t = i / N; prof.push([t * (span / 2), e0 + (Hb - e0) * t ** p]); }
+    for (let i = N - 1; i >= 0; i--) prof.push([span - prof[i][0], prof[i][1]]);
+  }
+  const body = [[0, 0], ...prof, [span, 0]];
+  add(g, prismGeo(`kr${span}|${Hb}|${o.shape}|${o.curve}`, body, len), mat(shade(c, 0.5)), len, 0, 0).rotation.y = -Math.PI / 2;
+  const tileM = o.surface === "thatch" ? mat("#C7A45A", { roughness: 0.95 }) : mat(c, { roughness: 0.7 });
+  for (let i = 0; i + 1 < prof.length; i++) {
+    const [z0, y0] = prof[i];
+    const [z1, y1] = prof[i + 1];
+    const L = Math.hypot(z1 - z0, y1 - y0);
+    const slab = add(g, ribbedStrip(o.surface, len, L + 0.04), tileM, 0, y0, z0);
+    slab.rotation.x = Math.atan2(-(y1 - y0), z1 - z0);
+    slab.position.y -= 0.1 * Math.cos(slab.rotation.x); // sink the strip into the body
+    slab.position.z -= 0.1 * Math.sin(slab.rotation.x);
+    if (o.fascia) {
+      const wb = B(g, 0.07, 0.1, L, darkWood, 0.035, (y0 + y1) / 2 + 0.03, (z0 + z1) / 2); // boards along the gable ends
+      wb.rotation.x = slab.rotation.x;
+      const wb2 = B(g, 0.07, 0.1, L, darkWood, len - 0.035, (y0 + y1) / 2 + 0.03, (z0 + z1) / 2);
+      wb2.rotation.x = slab.rotation.x;
+    }
+  }
+  if (o.fascia) {
+    B(g, len, 0.2, 0.06, darkWood, len / 2, 0.1, lean ? span - 0.03 : 0.03);
+    if (!lean) B(g, len, 0.2, 0.06, darkWood, len / 2, 0.1, span - 0.03);
+  }
+  if (o.cap) {
+    const rz = lean ? 0.14 : span / 2;
+    const ry = lean ? Hb + 0.1 : Hb + 0.14;
+    Cyl(g, 0.13, 0.13, len, mat(shade(c, 0.8)), len / 2, ry, rz).rotation.z = Math.PI / 2;
+  }
+  if (o.vent && !lean) {
+    for (let y = 0.18; y < Hb * 0.88; y += 0.17) {
+      const t = (Math.max(0, y - e0) / (Hb - e0)) ** (1 / p);
+      const chord = span - t * span;
+      [0.03, len - 0.03].forEach((x) => B(g, 0.05, 0.07, Math.max(0.1, chord - 0.12), midWood, x, y, span / 2));
+    }
+  }
+  return g;
+});
+
+/* ----- turned pillars ----- */
+const pillarMesh = (c, o) => {
+  const g = new THREE.Group();
+  const R = 0.28 * o.wide;
+  const H = o.tall * BH;
+  const baseH = 0.32;
+  const capH = 0.42;
+  const sh = H - baseH - capH;
+  const m = mat(c, { roughness: 0.55 });
+  const trim = mat(shade(c, 0.86), { roughness: 0.55 });
+  const pw = R * 2.9;
+  // base
+  if (o.base === "plain") B(g, pw, baseH, pw, trim, 0, baseH / 2, 0);
+  else if (o.base === "stepped") {
+    B(g, pw * 1.12, 0.1, pw * 1.12, trim, 0, 0.05, 0);
+    B(g, pw * 0.92, 0.1, pw * 0.92, m, 0, 0.15, 0);
+    Cyl(g, R * 1.28, R * 1.38, 0.12, trim, 0, 0.26, 0);
+  } else {
+    B(g, pw * 0.9, 0.08, pw * 0.9, trim, 0, 0.04, 0);
+    lathe(g, `lotusb${R}`, [[R * 1.5, 0], [R * 1.55, 0.06], [R * 1.4, 0.16], [R * 1.1, 0.26], [R * 0.95, baseH - 0.08]], m, 0, 0.08, 0);
+  }
+  // shaft
+  if (o.shape === "round") {
+    lathe(g, `shaft${R}|${sh.toFixed(2)}`, [[R * 1.0, 0], [R * 0.96, sh * 0.3], [R * 0.9, sh * 0.7], [R * 0.82, sh]], m, 0, baseH, 0);
+    [0.18, 0.5, 0.82].forEach((f) => Cyl(g, R * (1.0 - 0.17 * f) + 0.04, R * (1.0 - 0.17 * f) + 0.04, 0.05, trim, 0, baseH + sh * f, 0)); // turned rings
+  } else if (o.shape === "octagon") {
+    add(g, G(THREE.CylinderGeometry, R * 0.86, R * 1.0, sh, 8), m, 0, baseH + sh / 2, 0).rotation.y = Math.PI / 8;
+  } else {
+    B(g, R * 1.75, sh, R * 1.75, m, 0, baseH + sh / 2, 0);
+    const pm = mat(shade(c, 0.9), { roughness: 0.6 });
+    [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([dx, dz]) => {
+      B(g, dz ? R * 1.0 : 0.025, sh * 0.72, dx ? R * 1.0 : 0.025, pm, dx * R * 0.89, baseH + sh / 2, dz * R * 0.89); // raised panel on each face
+    });
+    B(g, R * 1.95, 0.07, R * 1.95, trim, 0, baseH + 0.08, 0);
+    B(g, R * 1.95, 0.07, R * 1.95, trim, 0, baseH + sh - 0.08, 0);
+  }
+  // capital
+  const cy = H - capH;
+  if (o.cap === "plain") {
+    Cyl(g, R * 1.15, R * 0.9, 0.12, trim, 0, cy + 0.06, 0);
+    B(g, pw * 1.05, 0.16, pw * 1.05, trim, 0, H - 0.08, 0);
+  } else if (o.cap === "bracket") {
+    Cyl(g, R * 1.1, R * 0.9, 0.1, trim, 0, cy + 0.05, 0);
+    B(g, pw, 0.12, pw, trim, 0, cy + 0.16, 0);
+    B(g, pw * 1.2, 0.14, pw * 0.72, darkWood, 0, H - 0.07, 0); // carved wooden bolster
+    [-1, 1].forEach((s) => {
+      const arm = B(g, 0.3 * o.wide, 0.08, pw * 0.5, darkWood, s * pw * 0.42, cy + 0.2, 0);
+      arm.rotation.z = -s * 0.75;
+      Sph(g, 0.05 * o.wide, brass, s * pw * 0.5, H - 0.22, 0);
+    });
+  } else {
+    lathe(g, `lotusc${R}`, [[R * 0.85, 0], [R * 1.15, 0.08], [R * 1.5, 0.2], [R * 1.4, 0.3], [R * 1.1, 0.34]], m, 0, cy, 0);
+    B(g, pw * 1.1, 0.1, pw * 1.1, trim, 0, H - 0.05, 0);
+  }
+  return g;
+};
+const pillarParams = [
+  { key: "shape", label: "Shaft", kind: "sel", def: "round", options: [["round", "Round (turned)"], ["square", "Square (panelled)"], ["octagon", "Octagonal"]] },
+  { key: "tall", label: "Height", kind: "num", min: 2, max: 6, step: 1, def: 3 },
+  { key: "base", label: "Base", kind: "sel", def: "stepped", options: [["plain", "Plain"], ["stepped", "Stepped"], ["lotus", "Lotus"]] },
+  { key: "cap", label: "Top", kind: "sel", def: "bracket", options: [["plain", "Plain"], ["bracket", "Wooden bracket"], ["lotus", "Lotus"]] },
+];
+regCustom("oldpillar", "Old-style pillar", [...pillarParams, { key: "wide", label: "Thickness", kind: "num", min: 1, max: 2, step: 1, def: 1 }], (o) => ({ w: o.wide, d: o.wide, h: o.tall, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const p = pillarMesh(c, o);
+  p.position.set(o.wide / 2, 0, o.wide / 2);
+  g.add(p);
+  return g;
+});
+
+/* ----- sit-out (poomukham) with pillars, parapet, steps and benches ----- */
+regCustom("sitout", "Sit-out (verandah)", [
+  { key: "w", label: "Width", kind: "num", min: 4, max: 12, step: 1, def: 8 },
+  { key: "d", label: "Depth", kind: "num", min: 3, max: 6, step: 1, def: 4 },
+  { key: "n", label: "Pillars (front)", kind: "num", min: 2, max: 8, step: 2, def: 4 },
+  { key: "shape", label: "Pillar shaft", kind: "sel", def: "round", options: [["round", "Round (turned)"], ["square", "Square (panelled)"], ["octagon", "Octagonal"]] },
+  { key: "tall", label: "Pillar height", kind: "num", min: 2, max: 4, step: 1, def: 3 },
+  { key: "cap", label: "Pillar top", kind: "sel", def: "bracket", options: [["plain", "Plain"], ["bracket", "Wooden bracket"], ["lotus", "Lotus"]] },
+  { key: "parapet", label: "Parapet wall", kind: "tog", def: true },
+  { key: "bench", label: "Benches (chaarupadi)", kind: "tog", def: true },
+  { key: "steps", label: "Front steps", kind: "tog", def: true },
+], (o) => ({ w: o.w, d: o.d, h: o.tall + 1, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w;
+  const pd = o.steps ? o.d - 0.9 : o.d; // depth of the raised floor
+  const ph = 0.6; // plinth height
+  const stone = mat(shade(c, 0.9), { roughness: 0.8 });
+  B(g, W, ph, pd, stone, W / 2, ph / 2, pd / 2);
+  B(g, W + 0.0, 0.06, 0.05, mat(shade(c, 0.7)), W / 2, ph - 0.03, pd - 0.025); // edge line
+  const n = o.n;
+  const xs = [];
+  for (let i = 0; i < n; i++) xs.push(0.5 + (i * (W - 1)) / (n - 1));
+  const gapL = xs[n / 2 - 1] + 0.5;
+  const gapR = xs[n / 2] - 0.5;
+  const pz = pd - 0.5;
+  // pillars, front row
+  xs.forEach((x) => {
+    const pil = pillarMesh(c, { shape: o.shape, tall: o.tall, base: "stepped", cap: o.cap, wide: 1 });
+    pil.position.set(x, ph, pz);
+    g.add(pil);
+  });
+  // parapet between the pillars (open where the steps are)
+  if (o.parapet) {
+    const pm = mat(shade(c, 0.95), { roughness: 0.8 });
+    const hh = 0.7;
+    const seg = (x0, x1) => {
+      if (x1 - x0 > 0.05) {
+        B(g, x1 - x0, hh, 0.3, pm, (x0 + x1) / 2, ph + hh / 2, pz);
+        B(g, x1 - x0, 0.08, 0.38, stone, (x0 + x1) / 2, ph + hh + 0.04, pz);
+      }
+    };
+    if (o.steps) { seg(0.3, gapL); seg(gapR, W - 0.3); } else seg(0.3, W - 0.3);
+    [0.15, W - 0.15].forEach((x) => {
+      B(g, 0.3, hh, pz - 0.4, pm, x, ph + hh / 2, (pz - 0.4) / 2 + 0.2);
+      B(g, 0.38, 0.08, pz - 0.4, stone, x, ph + hh + 0.04, (pz - 0.4) / 2 + 0.2);
+    });
+  }
+  // wooden beams on top of the pillars (the roof sits on these)
+  const by = ph + o.tall * BH;
+  B(g, W, 0.3, 0.34, darkWood, W / 2, by + 0.15, pz);
+  B(g, W, 0.3, 0.26, midWood, W / 2, by + 0.45, pz);
+  [0.17, W - 0.17].forEach((x) => B(g, 0.3, 0.3, pz + 0.17, darkWood, x, by + 0.15, (pz + 0.17) / 2 - 0.0));
+  B(g, W, 0.3, 0.3, darkWood, W / 2, by + 0.15, 0.15); // back plate, against the house wall
+  // steps
+  if (o.steps) {
+    const sw = gapR - gapL + 0.0;
+    const cx = (gapL + gapR) / 2;
+    B(g, sw, 0.4, 0.45, stone, cx, 0.2, pd + 0.225);
+    B(g, sw + 0.3, 0.2, 0.45, stone, cx, 0.1, pd + 0.675);
+  }
+  // benches along the inside of the front parapet
+  if (o.bench && o.parapet) {
+    const wood = mat(c === "#FFFFFF" ? "#C8955B" : shade(c, 0.8), { roughness: 0.6 });
+    const bench = (x0, x1) => {
+      if (x1 - x0 < 1) return;
+      const bl = x1 - x0;
+      B(g, bl, 0.07, 0.5, midWood, (x0 + x1) / 2, ph + 0.42, pz - 0.5);
+      [x0 + 0.1, x1 - 0.1].forEach((x) => {
+        B(g, 0.08, 0.42, 0.45, darkWood, x, ph + 0.21, pz - 0.5);
+        B(g, 0.1, 0.55, 0.07, darkWood, x, ph + 0.7, pz - 0.28).rotation.x = 0.2;
+      });
+      B(g, bl - 0.1, 0.1, 0.05, wood, (x0 + x1) / 2, ph + 0.78, pz - 0.28).rotation.x = 0.2; // sloped back rail
+      B(g, bl - 0.1, 0.34, 0.04, wood, (x0 + x1) / 2, ph + 0.6, pz - 0.27).rotation.x = 0.2;
+    };
+    if (o.steps) { bench(0.5, gapL - 0.1); bench(gapR + 0.1, W - 0.5); } else bench(0.5, W - 0.5);
+  }
+  return g;
+});
+
+regCustom("chaarupadi", "Sit-out bench (chaarupadi)", [{ key: "len", label: "Length", kind: "num", min: 2, max: 6, step: 1, def: 3 }], (o) => ({ w: o.len, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len;
+  const wood = mat(c, { roughness: 0.6 });
+  B(g, L - 0.04, 0.09, 0.7, wood, L / 2, 0.45, 0.5); // seat
+  const back = B(g, L - 0.12, 0.62, 0.07, wood, L / 2, 0.82, 0.2);
+  back.rotation.x = -0.28; // the backrest leans back
+  B(g, L - 0.12, 0.1, 0.09, darkWood, L / 2, 1.14, 0.1).rotation.x = -0.28;
+  [0.14, L - 0.14].forEach((x) => {
+    [0.2, 0.75].forEach((z) => Cyl(g, 0.05, 0.035, 0.42, darkWood, x, 0.21, z)); // turned legs
+    B(g, 0.07, 0.34, 0.62, darkWood, x, 0.64, 0.5).rotation.z = 0; // carved side board
+    const arm = B(g, 0.09, 0.07, 0.7, darkWood, x, 0.84, 0.5);
+    arm.position.y = 0.82;
+  });
+  return g;
+});
+
+/* ===================== lounge chairs, porch seating, stone brick, hanging pots and diyas ===================== */
+const swaying = (o, axis, amp, speed, ph = 0, roll = null) => {
+  o.userData.spin = { axis, amp, speed, ph, ...(roll ? { roll: { ...roll, base: o.position[roll.axis] } } : {}) };
+  return o;
+};
+const flickering = (o, ph = 0) => {
+  o.userData.spin = { flicker: true, ph };
+  return o;
+};
+const cane = mat("#D8B77A", { roughness: 0.85 });
+const wickerM = mat("#7A5632", { roughness: 0.9, side: THREE.DoubleSide });
+const woodWarm = mat("#A8743C", { roughness: 0.6 });
+const leafG = mat("#3C8D40", { roughness: 0.8 });
+const leafG2 = mat("#5BAA4A", { roughness: 0.8 });
+const claypot = mat("#B5502C", { roughness: 0.9 });
+const brassM = mat("#D8A93A", { metalness: 0.7, roughness: 0.3 });
+const cushionOf = (c) => mat(c, { roughness: 0.95 });
+
+/* ----- lounge chairs ----- */
+regCustom("recliner", "Recliner", [{ key: "pos", label: "Position", kind: "sel", def: "recline", options: [["sit", "Upright"], ["recline", "Reclined"], ["lay", "Lying back"]] }], () => ({ w: 2, d: 2, h: 1.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cu = cushionOf(c);
+  const ba = { sit: 0.1, recline: 0.32, lay: 0.5 }[o.pos];
+  B(g, 1.8, 0.14, 1.5, darkWood, 1, 0.22, 1);
+  [[0.25, 0.4], [1.75, 0.4], [0.25, 1.6], [1.75, 1.6]].forEach(([x, z]) => Cyl(g, 0.06, 0.05, 0.16, steel, x, 0.08, z));
+  B(g, 1.5, 0.3, 1.05, cu, 1, 0.45, 0.95); // seat
+  [0.17, 1.83].forEach((x) => B(g, 0.3, 0.62, 1.4, cu, x, 0.55, 1.0)); // arms
+  const back = new THREE.Group();
+  back.position.set(1, 0.58, 0.62);
+  back.rotation.x = -ba;
+  B(back, 1.46, 0.85, 0.3, cu, 0, 0.42, 0);
+  B(back, 1.0, 0.3, 0.18, cushionOf(shade(c, 0.9)), 0, 0.85, -0.02); // head cushion
+  g.add(back);
+  const foot = new THREE.Group();
+  foot.position.set(1, 0.52, 1.48);
+  foot.rotation.x = o.pos === "sit" ? 1.3 : -(o.pos === "recline" ? 0.15 : 0.35); // folded down, or raised
+  B(foot, 1.4, 0.14, 0.45, cu, 0, 0.0, 0.225);
+  g.add(foot);
+  return g;
+});
+
+regCustom("plantersChair", "Planter's easy chair", [], () => ({ w: 2, d: 3, h: 1.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cu = cushionOf(c);
+  [0.28, 1.72].forEach((x) => {
+    tube(g, [x, 1.0, 0.5], [x, 0.55, 1.5], 0.06, darkWood); // arm rail, down from the back to the seat
+    tube(g, [x, 0.55, 1.5], [x, 0.62, 2.85], 0.06, darkWood); // the long rail you rest your legs on
+    tube(g, [x, 0.02, 0.45], [x, 1.0, 0.5], 0.06, midWood); // rear leg
+    tube(g, [x, 0.02, 1.55], [x, 0.55, 1.5], 0.06, midWood); // front leg
+    Cyl(g, 0.07, 0.07, 0.04, brass, x, 0.64, 2.88);
+  });
+  [0.7, 1.3].forEach((z) => B(g, 1.44, 0.05, 0.05, midWood, 1, 0.15, z)); // cross bars
+  B(g, 1.5, 0.07, 0.06, midWood, 1, 0.5, 1.5);
+  const seat = B(g, 1.3, 0.05, 1.25, cane, 1, 0.52, 0.95);
+  seat.rotation.x = -0.1;
+  B(g, 1.2, 0.1, 1.0, cu, 1, 0.6, 0.95).rotation.x = -0.1;
+  const back = new THREE.Group();
+  back.position.set(1, 0.58, 0.62);
+  back.rotation.x = -0.4;
+  B(back, 1.36, 1.05, 0.05, cane, 0, 0.5, 0);
+  [-0.68, 0.68].forEach((x) => B(back, 0.07, 1.1, 0.08, midWood, x, 0.52, 0));
+  B(back, 1.44, 0.08, 0.08, midWood, 0, 1.06, 0);
+  B(back, 1.1, 0.7, 0.1, cu, 0, 0.45, 0.07);
+  g.add(back);
+  return g;
+});
+
+regCustom("sunlounger", "Sun lounger", [{ key: "tilt", label: "Back", kind: "sel", def: "half", options: [["flat", "Flat"], ["half", "Half up"], ["up", "Upright"]] }], () => ({ w: 2, d: 4, h: 1.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cu = cushionOf(c);
+  B(g, 1.5, 0.08, 2.6, white, 1, 0.45, 2.55); // leg section
+  B(g, 1.6, 0.08, 0.1, white, 1, 0.45, 3.85);
+  [[0.15, 1.35], [1.85, 1.35], [0.15, 3.8], [1.85, 3.8]].forEach(([x, z]) => Cyl(g, 0.05, 0.05, 0.42, white, x, 0.21, z));
+  B(g, 1.3, 0.14, 2.5, cu, 1, 0.56, 2.55);
+  const th = { flat: 0.06, half: 0.4, up: 0.75 }[o.tilt];
+  const back = new THREE.Group();
+  back.position.set(1, 0.5, 1.3);
+  back.rotation.x = th;
+  B(back, 1.5, 0.08, 1.2, white, 0, 0.0, -0.6);
+  B(back, 1.3, 0.14, 1.18, cu, 0, 0.1, -0.6);
+  g.add(back);
+  [0.3, 1.7].forEach((x) => { Cyl(g, 0.17, 0.17, 0.07, black, x, 0.17, 1.0).rotation.z = Math.PI / 2; });
+  return g;
+});
+
+regCustom("rockingchair", "Rocking chair", [{ key: "rock", label: "Rocking", kind: "sel", def: "gentle", options: [["still", "Still"], ["gentle", "Gentle"], ["wide", "Wide"]] }], () => ({ w: 2, d: 2, h: 1.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const R = 1.5;
+  const pivot = new THREE.Group();
+  pivot.position.set(1, R + 0.05, 1.0);
+  const Y = (y) => y - R - 0.05; // heights are written from the floor
+  [0.3, 1.7].forEach((x) => {
+    const arc = new THREE.Group();
+    arc.position.set(x - 1, 0, 0);
+    const ring = add(arc, G(THREE.TorusGeometry, R, 0.05, 6, 24, 1.0), woodWarm, 0, 0, 0);
+    ring.rotation.z = -Math.PI / 2 - 0.5;
+    arc.rotation.y = Math.PI / 2;
+    pivot.add(arc);
+    tube(pivot, [x - 1, Y(0.12), -0.5], [x - 1, Y(0.56), -0.4], 0.04, woodWarm);
+    tube(pivot, [x - 1, Y(0.12), 0.5], [x - 1, Y(0.56), 0.4], 0.04, woodWarm);
+    tube(pivot, [x - 1, Y(0.55), -0.42], [x - 1, Y(1.45), -0.6], 0.04, woodWarm); // back post
+    B(pivot, 0.08, 0.05, 0.9, woodWarm, x - 1, Y(0.82), 0.0); // arm
+  });
+  B(pivot, 1.3, 0.07, 1.0, woodWarm, 0, Y(0.56), 0);
+  B(pivot, 1.2, 0.1, 0.95, cushionOf(c), 0, Y(0.64), 0);
+  const back = new THREE.Group();
+  back.position.set(0, Y(0.6), -0.45);
+  back.rotation.x = -0.18;
+  for (let k = 0; k < 5; k++) B(back, 0.05, 0.75, 0.05, woodWarm, -0.5 + k * 0.25, 0.45, 0);
+  B(back, 1.3, 0.07, 0.07, woodWarm, 0, 0.88, 0);
+  B(back, 1.0, 0.5, 0.08, cushionOf(c), 0, 0.5, 0.06);
+  pivot.add(back);
+  if (o.rock !== "still") swaying(pivot, "x", o.rock === "wide" ? 0.2 : 0.1, 2.2, 0, { axis: "z", k: -R });
+  g.add(pivot);
+  return g;
+});
+
+regCustom("chaise", "Chaise lounge", [], () => ({ w: 2, d: 3, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cu = cushionOf(c);
+  const tuft = cushionOf(shade(c, 0.8));
+  B(g, 1.7, 0.2, 2.8, darkWood, 1, 0.32, 1.5);
+  [[0.2, 0.3], [1.8, 0.3], [0.2, 2.7], [1.8, 2.7]].forEach(([x, z]) => Cyl(g, 0.07, 0.04, 0.24, darkWood, x, 0.12, z));
+  B(g, 1.6, 0.34, 2.7, cu, 1, 0.58, 1.5);
+  const head = new THREE.Group();
+  head.position.set(1, 0.65, 0.6);
+  head.rotation.x = -0.42;
+  B(head, 1.6, 0.6, 0.3, cu, 0, 0.3, 0);
+  [-0.45, 0, 0.45].forEach((x) => [0.2, 0.42].forEach((y) => Sph(head, 0.045, tuft, x, y, 0.16))); // tufted buttons
+  g.add(head);
+  Cyl(g, 0.2, 0.2, 1.6, cu, 1, 0.9, 2.85).rotation.z = Math.PI / 2; // rolled foot end
+  Cyl(g, 0.2, 0.2, 0.5, cu, 0.2, 0.8, 0.9).rotation.x = Math.PI / 2; // scroll arm
+  return g;
+});
+
+regCustom("eggchair", "Egg chair", [], () => ({ w: 2, d: 2, h: 1.75, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  Cyl(g, 0.05, 0.05, 1.0, steel, 1, 0.5, 1);
+  add(g, G(THREE.TorusGeometry, 0.7, 0.04, 6, 24), steel, 1, 0.04, 1).rotation.x = Math.PI / 2;
+  B(g, 1.5, 0.06, 0.08, steel, 1, 0.05, 1);
+  B(g, 0.08, 0.06, 1.5, steel, 1, 0.05, 1);
+  const shell = add(g, G(THREE.SphereGeometry, 0.92, 22, 16, Math.PI / 2 + 0.9, Math.PI * 2 - 1.8, 0, Math.PI * 0.84), wickerM, 1, 1.22, 1);
+  shell.scale.set(1, 1.08, 1);
+  for (let k = 0; k < 7; k++) { // woven bands
+    const f = 0.18 + k * 0.1;
+    const r = 0.92 * Math.sin(Math.PI * f);
+    add(g, G(THREE.TorusGeometry, r, 0.012, 4, 24, Math.PI * 2 - 1.8), darkWood, 1, 1.22 + 0.92 * 1.08 * Math.cos(Math.PI * f), 1).rotation.set(Math.PI / 2, 0, Math.PI / 2 + 0.9 - Math.PI / 2 + Math.PI / 2 - 0.0);
+  }
+  const cu = cushionOf(c);
+  Sph(g, 0.6, cu, 1, 0.95, 1.15).scale.set(1.15, 0.28, 1.0); // seat
+  Sph(g, 0.62, cu, 1, 1.4, 0.55).scale.set(1.05, 1.2, 0.35); // back
+  return g;
+});
+
+regCustom("beanbag", "Bean bag", [], () => ({ w: 2, d: 2, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const m = cushionOf(c);
+  Sph(g, 0.95, m, 1, 0.55, 1.15).scale.set(1.0, 0.5, 0.9); // the seat
+  Sph(g, 0.6, m, 1, 0.6, 0.62).scale.set(1.4, 0.95, 0.7); // the slumped back
+  Sph(g, 0.4, cushionOf(shade(c, 0.85)), 1, 0.76, 1.2).scale.set(1.5, 0.3, 1.2); // dent where you sit
+  [-0.5, 0.5].forEach((x) => Sph(g, 0.06, cushionOf(shade(c, 0.7)), 1 + x, 0.82, 0.35)); // seam toggles
+  return g;
+});
+
+/* ----- porch bench and swing ----- */
+regCustom("porchbench", "Porch bench", [{ key: "len", label: "Length", kind: "num", min: 2, max: 6, step: 1, def: 3 }, { key: "cushion", label: "Cushion", kind: "tog", def: false }], (o) => ({ w: o.len, d: 1, h: 1.25, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len;
+  [0.3, 0.5, 0.7, 0.9].forEach((z) => B(g, L - 0.2, 0.05, 0.17, woodWarm, L / 2, 0.52, z)); // slatted seat
+  [0.14, L - 0.14].forEach((x) => {
+    [0.2, 0.85].forEach((z) => B(g, 0.09, 0.5, 0.09, darkWood, x, 0.25, z));
+    B(g, 0.09, 1.2, 0.09, darkWood, x, 0.8, 0.18).rotation.x = -0.1;
+    B(g, 0.12, 0.06, 0.8, darkWood, x, 0.86, 0.5); // arm
+    Sph(g, 0.07, darkWood, x, 0.86, 0.92);
+  });
+  [0.7, 0.92, 1.14].forEach((y) => B(g, L - 0.4, 0.14, 0.05, woodWarm, L / 2, y + 0.04, 0.17 - (y - 0.7) * 0.1));
+  B(g, L - 0.2, 0.06, 0.06, darkWood, L / 2, 0.3, 0.22); // stretcher
+  if (o.cushion) B(g, L - 0.4, 0.1, 0.65, cushionOf(c), L / 2, 0.6, 0.6);
+  return g;
+});
+
+regCustom("porchswing", "Porch swing", [
+  { key: "len", label: "Width", kind: "num", min: 2, max: 4, step: 1, def: 3 },
+  { key: "tall", label: "Height", kind: "num", min: 2, max: 6, step: 1, def: 3 },
+  { key: "sway", label: "Swinging", kind: "sel", def: "gentle", options: [["still", "Still"], ["gentle", "Gentle"], ["wide", "Wide"]] },
+  { key: "cushion", label: "Cushion", kind: "tog", def: true },
+], (o) => ({ w: o.len, d: 2, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len;
+  const H = o.tall * BH;
+  B(g, L, 0.1, 0.12, darkWood, L / 2, H - 0.05, 1); // the beam it hangs from
+  const sw = new THREE.Group();
+  sw.position.set(L / 2, H - 0.1, 1);
+  const Y = (y) => y - (H - 0.1);
+  const seatY = 0.5;
+  [-1, 1].forEach((s) => {
+    const x = s * (L / 2 - 0.2);
+    tube(sw, [x, 0, 0], [x, Y(seatY + 0.35), 0.4], 0.02, black); // chains
+    tube(sw, [x, 0, 0], [x, Y(seatY + 0.35), -0.4], 0.02, black);
+    B(sw, 0.1, 0.06, 1.0, darkWood, x, Y(seatY + 0.36), 0); // arm
+  });
+  [0.0, 0.2, 0.4, 0.6].forEach((z) => B(sw, L - 0.3, 0.05, 0.17, woodWarm, 0, Y(seatY), z - 0.1));
+  const back = new THREE.Group();
+  back.position.set(0, Y(seatY), -0.4);
+  back.rotation.x = -0.2;
+  [0.2, 0.4, 0.6, 0.8].forEach((y) => B(back, L - 0.3, 0.14, 0.05, woodWarm, 0, y, 0));
+  sw.add(back);
+  if (o.cushion) B(sw, L - 0.5, 0.1, 0.8, cushionOf(c), 0, Y(seatY + 0.08), 0.0);
+  if (o.sway !== "still") swaying(sw, "x", o.sway === "wide" ? 0.22 : 0.1, 1.5);
+  g.add(sw);
+  return g;
+});
+
+/* ----- stone brick ----- */
+const stonePal = {
+  rough: ["#8E8B84", "#7A7770", "#A19D94", "#6F6C66"],
+  laterite: ["#B4623A", "#A55530", "#C4744A", "#8F4A2B"],
+  cobble: ["#8B8E91", "#767A7D", "#9CA0A3", "#62666A"],
+  granite: ["#5B5F66", "#6B6F76", "#4A4E55", "#7D7F85"],
+};
+regCustom("stonebrick", "Stone brick", [
+  { key: "bw", label: "Width", kind: "num", min: 1, max: 6, step: 1, def: 2 },
+  { key: "bd", label: "Length", kind: "num", min: 1, max: 4, step: 1, def: 1 },
+  { key: "tall", label: "Layers", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "style", label: "Stone", kind: "sel", def: "rough", options: [["rough", "Rough stone"], ["laterite", "Laterite (red)"], ["cobble", "Cobble"], ["granite", "Granite blocks"]] },
+  { key: "tint", label: "Colour", kind: "sel", def: "natural", options: [["natural", "Natural stone"], ["chosen", "Chosen color"]] },
+], (o) => ({ w: o.bw, d: o.bd, h: o.tall, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const { bw, bd } = o;
+  const H = o.tall * BH;
+  const pal = (o.tint === "chosen" ? [1, 0.85, 1.12, 0.7].map((f) => shade(c, f)) : stonePal[o.style]).map((x) => mat(x, { roughness: 0.95 }));
+  const mortar = mat("#B5B0A4", { roughness: 1 });
+  B(g, bw - 0.08, H, bd - 0.08, mortar, bw / 2, H / 2, bd / 2);
+  B(g, bw - 0.04, 0.06, bd - 0.04, pal[0], bw / 2, H - 0.03, bd / 2);
+  const rowH = { rough: 0.42, laterite: 0.4, cobble: 0.3, granite: 0.6 }[o.style];
+  const baseL = { rough: 0.9, laterite: 1.0, cobble: 0.55, granite: 1.2 }[o.style];
+  const rows = Math.max(1, Math.round(H / rowH));
+  const rh = H / rows;
+  const sides = [
+    { len: bw, pos: (t, hh) => [t, hh, bd - 0.05], size: (l) => [l, 0, 0.1] }, // front
+    { len: bw, pos: (t, hh) => [t, hh, 0.05], size: (l) => [l, 0, 0.1] }, // back
+    { len: bd - 0.2, pos: (t, hh) => [0.05, hh, 0.1 + t], size: (l) => [0.1, 0, l] }, // left
+    { len: bd - 0.2, pos: (t, hh) => [bw - 0.05, hh, 0.1 + t], size: (l) => [0.1, 0, l] }, // right
+  ];
+  sides.forEach((sd, si) => {
+    for (let r = 0; r < rows; r++) {
+      let cur = 0;
+      let k = 0;
+      while (cur < sd.len - 0.02) {
+        const seed = si * 977 + r * 131 + k * 17 + bw * 3 + bd * 5 + o.style.length;
+        let l = baseL * (0.65 + 0.7 * rnd(seed));
+        if (k === 0 && r % 2) l *= 0.5;
+        l = Math.min(l, sd.len - cur);
+        if (sd.len - cur - l < 0.25) l = sd.len - cur;
+        const [px, py, pz] = sd.pos(cur + l / 2, (r + 0.5) * rh);
+        const [sx, , sz] = sd.size(l - 0.04);
+        const hh = rh - 0.04 - (o.style === "rough" ? 0.04 * rnd(seed + 5) : 0);
+        const dep = 0.09 + 0.03 * rnd(seed + 9);
+        B(g, sx ? (sx === 0.1 ? dep : sx) : dep, hh, sz ? (sz === 0.1 ? dep : sz) : dep, pal[Math.floor(rnd(seed + 3) * pal.length) % pal.length], px, py, pz);
+        cur += l;
+        k++;
+      }
+    }
+  });
+  studs(g, bw, bd, H, mat(stonePal[o.style][0], { roughness: 0.95 }));
+  return g;
+});
+
+/* ----- hanging pots and hanging diyas ----- */
+const hangPot = (parent, x, rimY, H, style, plant, ph, sway) => {
+  const pv = new THREE.Group();
+  pv.position.set(x, H, 0.5);
+  const Y = (y) => y - H;
+  const potM = style === "brass" ? brassM : style === "macrame" ? mat("#EFE6D2", { roughness: 1 }) : claypot;
+  Cyl(pv, 0.3, 0.2, 0.34, potM, 0, Y(rimY - 0.17), 0);
+  Cyl(pv, 0.33, 0.33, 0.05, style === "brass" ? brassM : mat(shade("#B5502C", 0.9)), 0, Y(rimY - 0.02), 0);
+  add(pv, G(THREE.TorusGeometry, 0.05, 0.015, 6, 12), steel, 0, -0.03, 0);
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI * 2 + 0.5;
+    tube(pv, [0, -0.03, 0], [0.31 * Math.cos(a), Y(rimY), 0.31 * Math.sin(a)], style === "macrame" ? 0.02 : 0.012, style === "macrame" ? mat("#EFE6D2") : black);
+  }
+  if (style === "macrame") for (let k = 0; k < 3; k++) { const a = (k / 3) * Math.PI * 2 + 0.5; Sph(pv, 0.035, mat("#EFE6D2"), 0.2 * Math.cos(a), Y(rimY) + 0.25, 0.2 * Math.sin(a)); }
+  const lenTail = Math.max(0.1, Math.min(0.9, rimY - 0.4));
+  if (plant === "fern") {
+    for (let k = 0; k < 9; k++) {
+      const a = (k / 9) * Math.PI * 2;
+      const fr = add(pv, G(THREE.SphereGeometry, 0.2, 8, 6), k % 2 ? leafG : leafG2, 0.2 * Math.cos(a), Y(rimY) + 0.1, 0.2 * Math.sin(a));
+      fr.scale.set(0.4, 0.7, 1.6);
+      fr.rotation.y = -a + Math.PI / 2;
+      fr.rotation.z = 0.0;
+    }
+    Sph(pv, 0.2, leafG, 0, Y(rimY) + 0.12, 0).scale.set(1, 0.7, 1);
+  } else if (plant === "vine") {
+    Sph(pv, 0.26, leafG, 0, Y(rimY) + 0.05, 0).scale.set(1, 0.6, 1);
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      const x0 = 0.3 * Math.cos(a);
+      const z0 = 0.3 * Math.sin(a);
+      const n = Math.max(2, Math.round((lenTail / 0.9) * 6) + 1 - (k % 2));
+      for (let j = 0; j < n; j++) Sph(pv, 0.07, j % 2 ? leafG : leafG2, x0 * (1 + j * 0.05), Y(rimY) - 0.03 - (j * lenTail) / n, z0 * (1 + j * 0.05)).scale.set(1.2, 0.8, 1);
+    }
+  } else {
+    Sph(pv, 0.24, leafG, 0, Y(rimY) + 0.04, 0).scale.set(1, 0.6, 1);
+    ["#E94E77", "#FFD23F", "#FFFFFF", "#FF8A3D", "#E94E77", "#FFD23F", "#FFFFFF"].forEach((cc, k) => {
+      const a = k * 2.4;
+      Sph(pv, 0.07, mat(cc, { roughness: 0.7 }), 0.17 * Math.cos(a), Y(rimY) + 0.16 + 0.04 * (k % 3), 0.17 * Math.sin(a));
+    });
+  }
+  if (sway) swaying(pv, "z", sway, 1.3, ph);
+  parent.add(pv);
+};
+regCustom("hangingpots", "Hanging pots", [
+  { key: "n", label: "Pots", kind: "num", min: 1, max: 3, step: 1, def: 2 },
+  hangParam,
+  { key: "style", label: "Pot", kind: "sel", def: "clay", options: [["clay", "Clay"], ["brass", "Brass"], ["macrame", "Rope sling"]] },
+  { key: "plant", label: "Plant", kind: "sel", def: "vine", options: [["fern", "Fern"], ["vine", "Trailing vine"], ["flowers", "Flowers"]] },
+  { key: "sway", label: "Swaying", kind: "sel", def: "gentle", options: [["still", "Still"], ["gentle", "Gentle"]] },
+], (o) => ({ w: o.n, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  B(g, o.n - 0.1, 0.07, 0.12, darkWood, o.n / 2, H - 0.035, 0.5); // hanging rail
+  for (let i = 0; i < o.n; i++) {
+    const rimY = Math.max(0.5, H - 0.8 - (i % 2) * 0.45);
+    hangPot(g, i + 0.5, rimY, H, o.style, o.plant, i * 1.7, o.sway === "gentle" ? 0.05 : 0);
+  }
+  return g;
+});
+
+regCustom("hangingdiya", "Hanging diya", [
+  hangParam,
+  { key: "style", label: "Style", kind: "sel", def: "thookku", options: [["bowl", "Single diya"], ["thookku", "Kerala hanging lamp"], ["ring", "Ring of five"]] },
+  { key: "sway", label: "Swaying", kind: "sel", def: "gentle", options: [["still", "Still"], ["gentle", "Gentle"]] },
+  { key: "intensity", label: "Brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+  lightParams[1],
+], (o) => ({ w: o.style === "ring" ? 2 : 1, d: o.style === "ring" ? 2 : 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const cx = o.style === "ring" ? 1 : 0.5;
+  const rimY = Math.max(0.45, H - 0.85);
+  const pv = new THREE.Group();
+  pv.position.set(cx, H, cx);
+  const Y = (y) => y - H;
+  const flame = glowMat(o, c);
+  Cyl(pv, 0.12, 0.12, 0.05, brassM, 0, -0.03, 0); // ceiling cap
+  if (o.style === "bowl") {
+    for (let k = 0; k < 3; k++) { const a = (k / 3) * Math.PI * 2; tube(pv, [0, -0.05, 0], [0.26 * Math.cos(a), Y(rimY), 0.26 * Math.sin(a)], 0.012, brassM); }
+    Cyl(pv, 0.3, 0.14, 0.14, brassM, 0, Y(rimY) - 0.07, 0);
+    Cyl(pv, 0.26, 0.26, 0.02, mat("#F4D58A"), 0, Y(rimY) - 0.01, 0);
+    flickering(add(pv, G(THREE.ConeGeometry, 0.05, 0.22, 8), flame, 0, Y(rimY) + 0.1, 0), 0.3);
+  } else if (o.style === "thookku") {
+    Cyl(pv, 0.2, 0.05, 0.16, brassM, 0, Y(H - 0.2), 0); // ornate dome
+    tube(pv, [0, Y(H - 0.28), 0], [0, Y(rimY) + 0.3, 0], 0.013, brassM);
+    Sph(pv, 0.07, brassM, 0, Y(rimY) + 0.3, 0);
+    add(pv, G(THREE.TorusGeometry, 0.17, 0.014, 6, 16), brassM, 0, Y(rimY) + 0.18, 0).rotation.x = Math.PI / 2;
+    for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI * 2; tube(pv, [0, Y(rimY) + 0.3, 0], [0.17 * Math.cos(a), Y(rimY) + 0.18, 0.17 * Math.sin(a)], 0.01, brassM); }
+    Cyl(pv, 0.22, 0.1, 0.12, brassM, 0, Y(rimY) + 0.04, 0); // bowl
+    Cyl(pv, 0.19, 0.19, 0.02, mat("#F4D58A"), 0, Y(rimY) + 0.1, 0);
+    flickering(add(pv, G(THREE.ConeGeometry, 0.045, 0.2, 8), flame, 0, Y(rimY) + 0.21, 0), 0.6);
+    Cyl(pv, 0.05, 0.02, 0.1, brassM, 0, Y(rimY) - 0.08, 0);
+    Sph(pv, 0.05, brassM, 0, Y(rimY) - 0.16, 0);
+    [-1, 1].forEach((s) => Sph(pv, 0.03, brassM, s * 0.12, Y(rimY) - 0.02, 0)); // small bells
+  } else {
+    add(pv, G(THREE.TorusGeometry, 0.62, 0.025, 6, 28), brassM, 0, Y(rimY) - 0.02, 0).rotation.x = Math.PI / 2;
+    for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI * 2 + 0.4; tube(pv, [0, -0.05, 0], [0.62 * Math.cos(a), Y(rimY) - 0.02, 0.62 * Math.sin(a)], 0.012, brassM); }
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      const dx = 0.62 * Math.cos(a);
+      const dz = 0.62 * Math.sin(a);
+      Cyl(pv, 0.12, 0.06, 0.07, brassM, dx, Y(rimY) + 0.04, dz);
+      flickering(add(pv, G(THREE.ConeGeometry, 0.03, 0.14, 8), flame, dx, Y(rimY) + 0.14, dz), k * 1.1);
+    }
+    Cyl(pv, 0.05, 0.02, 0.1, brassM, 0, Y(rimY) - 0.1, 0);
+  }
+  if (o.sway === "gentle") swaying(pv, "z", 0.05, 1.2);
+  g.add(pv);
+  return g;
+}, (o, c) => ({ kind: "point", pos: [o.style === "ring" ? 0 : 0, Math.max(0.45, o.tall * BH - 0.85) + 0.25, 0], power: o.intensity / 100, color: toneOf(o, c), dist: o.style === "ring" ? 9 : 6 }));
+
+/* ---------- more cars (generic body styles, no badges) and a car porch ---------- */
+const chromeM = mat("#D8DCE2", { metalness: 0.7, roughness: 0.25 });
+const darkGrille = mat("#202226", { roughness: 0.5 });
+const mirrorsAt = (g, c, y, z) => [0.06, 1.94].forEach((x) => B(g, 0.14, 0.12, 0.2, mat(c), x, y, z));
+const handlesAt = (g, y, zs, d = 0.02) => [0.14, 1.86].forEach((x) => zs.forEach((z) => B(g, 0.04, 0.05, 0.3, chromeM, x < 1 ? x - d + 0.02 : x + d - 0.02, y, z)));
+
+reg("luxsedan", "Luxury sedan", 2, 5, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  const len = 5;
+  [0.95, len - 0.95].forEach((z) => [0.17, 1.83].forEach((x) => wheel(g, x, 0.42, z, 0.42, 0.28)));
+  B(g, 1.7, 0.62, len - 0.2, body, 1, 0.62, len / 2); // long body
+  B(g, 1.66, 0.1, 1.0, body, 1, 0.98, 0.7); // boot lid
+  B(g, 1.66, 0.1, 1.3, body, 1, 0.98, len - 0.8); // bonnet
+  B(g, 1.5, 0.6, 2.1, body, 1, 1.28, 2.2); // cabin
+  B(g, 1.52, 0.36, 1.6, tintM, 1, 1.32, 2.2);
+  B(g, 1.3, 0.36, 2.12, tintM, 1, 1.32, 2.2);
+  B(g, 1.5, 0.08, 2.1, body, 1, 1.62, 2.2);
+  B(g, 1.54, 0.03, 1.7, chromeM, 1, 1.12, 2.2); // window line trim
+  B(g, 1.0, 0.24, 0.05, darkGrille, 1, 0.68, len - 0.08); // grille
+  B(g, 1.04, 0.03, 0.06, chromeM, 1, 0.82, len - 0.07);
+  B(g, 1.04, 0.03, 0.06, chromeM, 1, 0.54, len - 0.07);
+  B(g, 1.74, 0.1, 0.1, chromeM, 1, 0.38, len - 0.1); // bumpers
+  B(g, 1.74, 0.1, 0.1, chromeM, 1, 0.38, 0.1);
+  lampsAt(g, len, 0.78, [0.38, 1.62]);
+  mirrorsAt(g, c, 1.1, 2.95);
+  handlesAt(g, 0.85, [1.6, 2.4]);
+  return g;
+});
+reg("sportsedan", "Sport sedan", 2, 4, 2, false, (c) => {
+  const g = new THREE.Group();
+  const body = mat(c);
+  const len = 4;
+  [0.85, len - 0.85].forEach((z) => [0.15, 1.85].forEach((x) => wheel(g, x, 0.4, z, 0.4, 0.32)));
+  B(g, 1.74, 0.5, len - 0.2, body, 1, 0.55, len / 2);
+  B(g, 1.4, 0.45, 1.7, body, 1, 1.05, 1.7); // low cabin
+  B(g, 1.42, 0.28, 1.2, tintM, 1, 1.07, 1.7);
+  B(g, 1.2, 0.28, 1.72, tintM, 1, 1.07, 1.7);
+  B(g, 1.4, 0.07, 1.7, body, 1, 1.3, 1.7);
+  B(g, 0.5, 0.04, 0.9, darkGrille, 1, 0.82, 3.1); // bonnet vent
+  B(g, 1.0, 0.1, 0.05, darkGrille, 1, 0.55, len - 0.08); // wide mouth
+  B(g, 1.8, 0.05, 0.35, black, 1, 0.3, len - 0.12); // front splitter
+  [0.4, 1.6].forEach((x) => B(g, 0.05, 0.3, 0.1, black, x, 0.95, 0.32)); // spoiler posts
+  B(g, 1.7, 0.05, 0.4, black, 1, 1.12, 0.3); // spoiler
+  lampsAt(g, len, 0.65, [0.38, 1.62]);
+  B(g, 1.2, 0.07, 0.05, lampM, 1, 0.68, len - 0.1); // light bar
+  [0.6, 1.4].forEach((x) => Cyl(g, 0.06, 0.06, 0.2, steel, x, 0.3, 0.05).rotation.x = Math.PI / 2); // twin exhaust
+  mirrorsAt(g, c, 1.02, 2.3);
+  return g;
+});
+// rugged 4x4 helpers
+function fourByFour(g, c, len, o) {
+  const roof = sedan(g, c, { len, cabLen: o.cabLen, cabZ: o.cabZ, cabH: o.cabH, lift: o.lift });
+  const L = o.lift;
+  [0.17, 1.83].forEach((x) => [0.85, len - 0.85].forEach((z) => B(g, 0.2, 0.08, 0.95, black, x, 0.42 + L + 0.38, z))); // wheel arch flares
+  B(g, 1.6, 0.16, 0.12, black, 1, 0.55 + L, len - 0.08); // bull bar
+  B(g, 1.0, 0.24, 0.05, darkGrille, 1, 0.75 + L, len - 0.08);
+  [0.35, 1.65].forEach((x) => B(g, 0.05, 0.25, 0.05, steel, x, 0.68 + L, len - 0.1));
+  B(g, 0.06, 0.06, 0.7, steel, 0.06, 0.38 + L, len - 1.4);
+  B(g, 0.06, 0.06, 0.7, steel, 1.94, 0.38 + L, len - 1.4);
+  [0.3, 1.7].forEach((x) => B(g, 0.06, 0.05, o.cabLen - 0.2, steel, x, roof + 0.05, o.cabZ)); // roof rails
+  for (let i = 0; i < 4; i++) B(g, 1.5, 0.04, 0.05, steel, 1, roof + 0.1, o.cabZ - (o.cabLen - 0.5) / 2 + (i * (o.cabLen - 0.5)) / 3);
+  Cyl(g, 0.35 + L * 0.5, 0.35 + L * 0.5, 0.16, black, 1, 0.5 + L + 0.4, 0.07).rotation.x = Math.PI / 2; // spare wheel on the tailgate
+  Cyl(g, 0.15, 0.15, 0.18, steel, 1, 0.5 + L + 0.4, 0.07).rotation.x = Math.PI / 2;
+  mirrorsAt(g, c, 0.95 + L + 0.15, o.cabZ + o.cabLen / 2 - 0.1);
+  handlesAt(g, 0.95 + L, [o.cabZ - 0.3, o.cabZ + 0.4]);
+  return roof;
+}
+reg("fullsuv", "Full-size 4x4", 2, 5, 2, false, (c) => {
+  const g = new THREE.Group();
+  fourByFour(g, c, 5, { cabLen: 3.1, cabZ: 2.35, cabH: 0.85, lift: 0.1 });
+  [0.12, 1.88].forEach((x) => B(g, 0.14, 0.05, 2.4, steel, x, 0.55, 2.4)); // side steps
+  Cyl(g, 0.05, 0.05, 0.9, black, 1.95, 1.35, 3.6); // snorkel
+  return g;
+});
+reg("midsuv", "Mid-size 4x4", 2, 4, 2, false, (c) => {
+  const g = new THREE.Group();
+  fourByFour(g, c, 4, { cabLen: 2.3, cabZ: 1.75, cabH: 0.8, lift: 0.06 });
+  return g;
+});
+
+regCustom("carporch", "Car porch", [
+  { key: "bays", label: "Cars", kind: "num", min: 1, max: 3, step: 1, def: 1 },
+  { key: "tall", label: "Height (layers)", kind: "num", min: 4, max: 8, step: 1, def: 5 },
+  { key: "roofStyle", label: "Roof", kind: "sel", def: "gable", options: [["flat", "Flat slab"], ["slope", "Sloping tiles"], ["gable", "Gable (ridge)"], ["pergola", "Open beams"]] },
+  { key: "pillars", label: "Pillars", kind: "sel", def: "square", options: [["square", "Square"], ["round", "Round"]] },
+  { key: "floor", label: "Floor", kind: "tog", def: true },
+], (o) => ({ w: o.bays * 3 + 1, d: 6, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.bays * 3 + 1, D = 6;
+  const rise = o.roofStyle === "slope" ? 0.9 : o.roofStyle === "gable" ? Math.min(1.5, W * 0.28) : 0;
+  const extra = { flat: 0.17, slope: rise + 0.14, gable: rise + 0.07, pergola: 0.27 }[o.roofStyle];
+  const H = o.tall * 1.2 - extra; // the roof sits inside the declared height
+  const roofMat = mat(c, { roughness: 0.7 });
+  const post = (x, z) => (o.pillars === "round" ? Cyl(g, 0.17, 0.2, H, concreteM, x, H / 2, z) : B(g, 0.36, H, 0.36, concreteM, x, H / 2, z));
+  if (o.floor) B(g, W - 0.2, 0.05, D - 0.2, mat("#8E9299", { roughness: 0.9 }), W / 2, 0.03, D / 2);
+  const xs = [0.3];
+  for (let i = 1; i <= o.bays; i++) xs.push(0.3 + (i * (W - 0.6)) / o.bays);
+  xs.forEach((x) => [0.3, D - 0.3].forEach((z) => post(x, z)));
+  [0.3, D - 0.3].forEach((z) => B(g, W - 0.2, 0.2, 0.3, darkWood, W / 2, H - 0.1, z)); // front and back beams
+  xs.forEach((x) => B(g, 0.2, 0.2, D - 0.2, darkWood, x, H - 0.1, D / 2)); // side beams
+  if (o.roofStyle === "flat") {
+    B(g, W - 0.2, 0.16, D - 0.2, roofMat, W / 2, H + 0.08, D / 2);
+    B(g, W - 0.2, 0.1, 0.1, concreteM, W / 2, H + 0.13, D - 0.15);
+    B(g, W - 0.2, 0.1, 0.1, concreteM, W / 2, H + 0.13, 0.15);
+  } else if (o.roofStyle === "slope") {
+    const geo = prismGeo("cps" + W, [[0, 0], [W, 0], [W, 0.12], [0, 0.12 + rise]], D);
+    add(g, geo, roofMat, 0, H, 0);
+    for (let i = 1; i < 12; i++) B(g, 0.05, 0.03, D - 0.02, mat(shade(c, 0.8)), (i * W) / 12, H + 0.14 + rise * (1 - i / 12), D / 2);
+  } else if (o.roofStyle === "gable") {
+    const geo = prismGeo("cpg" + W, [[0, 0], [W, 0], [W / 2, rise]], D);
+    add(g, geo, roofMat, 0, H, 0);
+    B(g, 0.14, 0.14, D, mat(shade(c, 0.75)), W / 2, H + rise, D / 2);
+  } else {
+    for (let z = 0.3; z < D; z += 0.75) B(g, W - 0.2, 0.14, 0.2, darkWood, W / 2, H + 0.07, z);
+    for (let x = 0.3; x < W; x += 0.9) B(g, 0.1, 0.1, D - 0.2, midWood, x, H + 0.19, D / 2);
+  }
+  return g;
+});
+
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
@@ -4571,6 +5330,10 @@ export const GROUPS = [
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
   { title: "Fences and gates", keys: ["fence2", "fence", "panelfence", "ironfence", "meshfence", "gate2", "gate4", "gateopen"] },
   { title: "Roof rails", keys: ["roofrail2", "roofrail4", "railcorner", "glassrail"] },
+  { title: "Lounge chairs and benches", keys: ["recliner", "plantersChair", "sunlounger", "rockingchair", "chaise", "eggchair", "beanbag", "porchbench", "porchswing"] },
+  { title: "Stone and masonry", keys: ["stonebrick"] },
+  { title: "Hanging decor", keys: ["hangingpots", "hangingdiya"] },
+  { title: "Old-style and Kerala home", keys: ["keralaroof", "oldpillar", "sitout", "chaarupadi"] },
   { title: "Ceiling lights and fans", keys: ["downlight", "ledpanel", "tubelight", "flushdome", "tracklight", "pendantcluster", "falseceiling", "ceilingfan", "tablefan", "pedestalfan", "wallfan", "exhaustfan"] },
   { title: "Lighting", keys: ["tablelamp", "hanglamp", "chandelier", "walllight", "spotlight", "lantern", "streetlight", "streetlight2", "curvedlight", "solarlight", "floodlight", "bollardlight", "pathlight", "ledstrip"] },
   { title: "Floor tiles", keys: ["floortile", "floorc2", "floorc4", "floorw2", "floorw4", "floort2", "floort4"] },
@@ -4581,7 +5344,8 @@ export const GROUPS = [
   { title: "People", keys: ["person", "worker", "woman", "man", "child", "chef", "doctor", "police", "farmer"] },
   { title: "Pets", keys: ["dog", "cat", "rabbit", "parrot", "fishbowl"] },
   { title: "Animals", keys: ["horse", "cow", "sheep", "pig", "goat", "chicken", "duck", "deer", "zebraanimal", "lion", "tiger", "bear", "panda", "elephant", "giraffe", "camel", "monkey", "penguin", "turtle", "frog", "crocodile", "dolphin"] },
-  { title: "Road vehicles", keys: ["car", "taxi", "suv", "policecar", "racecar", "pickup", "van", "ambulance", "firetruck", "truck", "rickshaw", "bus", "schoolbus", "doubledecker"] },
+  { title: "Car porch and garage", keys: ["carporch"] },
+  { title: "Road vehicles", keys: ["car", "luxsedan", "sportsedan", "taxi", "suv", "midsuv", "fullsuv", "policecar", "racecar", "pickup", "van", "ambulance", "firetruck", "truck", "rickshaw", "bus", "schoolbus", "doubledecker"] },
   { title: "Construction vehicles", keys: ["dumptruck", "cement", "tractor", "excavator", "bulldozer", "crane"] },
   { title: "Bridges and construction", keys: ["bridgedeck", "bridgepier", "bridgearch", "trussbridge", "suspension", "cablestay", "beam", "column", "scaffold", "towercrane", "trafficcone", "roadbarrier"] },
   { title: "Air vehicles", keys: ["heli", "jet", "airplane", "balloon", "rocket"] },

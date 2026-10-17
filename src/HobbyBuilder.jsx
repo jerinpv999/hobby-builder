@@ -12,7 +12,7 @@ const DEFAULT_N = 20; // starting baseplate: N x N studs
 const STEP = 4; // each expand/shrink adds or removes this many studs per side
 
 const COLORS = [
-   { name: "Red", hex: "#D01012" },
+  { name: "Red", hex: "#D01012" },
   { name: "Blue", hex: "#0055BF" },
   { name: "Yellow", hex: "#F2CD37" },
   { name: "Green", hex: "#237841" },
@@ -64,7 +64,7 @@ function Thumb({ k, color }) {
 }
 
 const CSS = `
-.lb{display:flex;flex-direction:column;height:100vh;min-height:520px;background:#0F1A33;color:#E8EEF8;font-family:'Trebuchet MS','Segoe UI',sans-serif;font-size:14px}
+.lb{display:flex;flex-direction:column;height:var(--lb-h,100vh);min-height:520px;background:#0F1A33;color:#E8EEF8;font-family:'Trebuchet MS','Segoe UI',sans-serif;font-size:14px}
 .lb *{box-sizing:border-box}
 .lb button{font:inherit;color:inherit;cursor:pointer}
 .lb button:disabled{opacity:.4;cursor:default}
@@ -291,11 +291,13 @@ const HELP_CSS = `
 `;
 
 /* ---------- component ---------- */
-export default function HobbyBuilder() {
+/* Props (all optional): with `initial` (parsed structure, or null for an empty baseplate) and `onChange(text)` the build
+   comes from, and is saved to, a cloud workspace instead of the browser autosave. */
+export default function HobbyBuilder({ initial, onChange } = {}) {
   const mountRef = useRef(null);
   const three = useRef({});
   const live = useRef({});
-  const [init] = useState(loadSaved); // restored from the browser autosave, if any
+  const [init] = useState(() => (initial !== undefined ? initial : loadSaved())); // restored from the workspace, or the browser autosave
   const idCounter = useRef(init ? init.pieces.length : 0);
   const fileRef = useRef(null);
   const [note, setNote] = useState("");
@@ -1035,7 +1037,7 @@ export default function HobbyBuilder() {
 
   /* keep the creation in the browser so a refresh doesn't lose it */
   const setup = { reveal: anim, camMode, pieceAnims: animPieces, shots, stops, stopSecs }; // the video setup is saved with the structure
-  useEffect(() => autosave(N, bricks, setup), [N, bricks, anim, camMode, animPieces, shots, stops, stopSecs]);
+  useEffect(() => (onChange ? onChange(serializeStructure(N, bricks, setup)) : autosave(N, bricks, setup)), [N, bricks, anim, camMode, animPieces, shots, stops, stopSecs]);
 
   const saveJson = () => {
     const blob = new Blob([serializeStructure(N, bricks, setup)], { type: "application/json" });

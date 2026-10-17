@@ -164,7 +164,18 @@ export function applyPieceAnims(group, t) {
 export function spinFans(group, t) {
   const list = group.userData.spinners;
   if (!list) return;
-  for (const o of list) o.rotation[o.userData.spin.axis] = o.userData.spin.speed * t;
+  for (const o of list) {
+    const s = o.userData.spin;
+    if (s.flicker) {
+      // a flame: its height and width shimmer
+      o.scale.set(1 + 0.12 * Math.sin(t * 13 + s.ph), 1 + 0.3 * Math.sin(t * 17 + s.ph * 2.3) + 0.12 * Math.sin(t * 29), 1 + 0.12 * Math.sin(t * 11 + s.ph));
+    } else if (s.amp !== undefined) {
+      // swings back and forth; a rocker also rolls along the floor as it tips
+      const a = s.amp * Math.sin(s.speed * t + (s.ph || 0));
+      o.rotation[s.axis] = a;
+      if (s.roll) o.position[s.roll.axis] = s.roll.base + s.roll.k * a;
+    } else o.rotation[s.axis] = s.speed * t;
+  }
 }
 
 /* Put every animated piece back where it was placed. */
