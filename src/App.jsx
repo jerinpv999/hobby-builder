@@ -4,7 +4,6 @@ import hobbyBuilderLogo from '/hobby-builder.svg'
 import './App.css'
 
 import HobbyBuilder from "./HobbyBuilder";
-import HobbyBuilder from "./HobbyBuilder";
 
 export default function App() {
   return <HobbyBuilder />;
