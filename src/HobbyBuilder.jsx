@@ -241,6 +241,7 @@ const SHORTCUTS = [
   ["Select pieces (S)", [
     ["Click", "Select a piece"], ["Shift+click", "Add or remove a piece"], ["Shift+drag", "Box-select (Ctrl+Shift+drag adds)"],
     ["Ctrl+A", "Select everything"], ["Arrow keys", "Move the selection (Shift = 4 studs)"], ["R / Shift+R", "Turn the selected pieces"],
+    ["Drag", "Drag a piece (or the whole selection) across the plate"], ["Alt+Up / Alt+Down", "Lift or lower the selection"], ["Ctrl+C / Ctrl+X", "Copy / cut the selection"], ["Ctrl+V", "Paste where the pointer is (repeat to paste again elsewhere)"],
     ["Ctrl+D", "Duplicate"], ["Delete", "Delete the selected pieces"], ["Esc", "Clear the selection"],
   ]],
   ["Light", [["N", "Day / night"]]],
@@ -330,6 +331,10 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
   const [selIds, setSelIds] = useState([]); // pieces picked in Select mode
   const [selTab, setSelTab] = useState("edit"); // tab of the selection card
   const [moveStep, setMoveStep] = useState(1); // studs moved per click
+  const [sound, setSound] = useState(false); // thunder rumbles when on (browsers need a click first)
+  const audio = useRef(null);
+  const clip = useRef(null); // copied pieces
+  const [hasClip, setHasClip] = useState(false);
   const [marquee, setMarquee] = useState(null); // the box being dragged in Select mode
   const [pathPick, setPathPick] = useState(false); // clicking the ground adds motion-path points
   const [dimByType, setDimByType] = useState({}); // stretched size chosen for a piece type
@@ -368,7 +373,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
   const baseDm = typeDims(type, opts); // size before stretching
   const dm = typeDims(type, opts, dim); // footprint, height and stackability for these settings
   const [w, d] = rot % 2 ? [dm.d, dm.w] : [dm.w, dm.d];
-  live.current = { N, bricks, cut, attach, daylight, color, type, rot, w, d, dm, opts, dim, mode, pathPick };
+  live.current = { N, bricks, cut, attach, daylight, color, type, rot, w, d, dm, opts, dim, mode, pathPick, selIds, sound };
 
   /* scene setup (once) */
   useEffect(() => {
@@ -690,14 +695,48 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     dom.style.touchAction = "none";
     const onDown = (e) => {
       down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, moved: false, pan: e.button === 1 || e.button === 2, box: live.current.mode === "select" && e.shiftKey && !walk.active, add: e.ctrlKey || e.metaKey };
+      if (live.current.mode === "select" && !walk.active && e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey && !live.current.pathPick) {
+        // pressing on a piece lets you drag it (the whole selection moves if the piece is part of it)
+        const hit = pick(e);
+        const id = hit && hit.object.userData.id;
+        if (id) down.drag = { id, ids: live.current.selIds.includes(id) ? live.current.selIds : [id], y: hit.point.y, p0: hit.point.clone(), dx: 0, dz: 0 };
+      }
       dom.setPointerCapture(e.pointerId);
+    };
+    // slide the dragged pieces over the plate: where the pointer is on a flat plane at the height that was grabbed
+    const dragPreview = (e) => {
+      const dr = down.drag;
+      const r = dom.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      camera.updateMatrixWorld();
+      ray.setFromCamera(ndc, camera);
+      const o = ray.ray.origin, dv = ray.ray.direction;
+      if (Math.abs(dv.y) < 1e-4) return;
+      const tt = (dr.y - o.y) / dv.y;
+      if (tt < 0) return;
+      const { N: pn, bricks: bs } = live.current;
+      const items = bs.filter((b) => dr.ids.includes(b.id));
+      if (!items.length) return;
+      const q = items.every((b) => b.att) ? 4 : 1;
+      const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+      dr.dx = clamp(Math.round((o.x + dv.x * tt - dr.p0.x) * q) / q, -Math.min(...items.map((b) => b.x)), pn - Math.max(...items.map((b) => b.x + b.w)));
+      dr.dz = clamp(Math.round((o.z + dv.z * tt - dr.p0.z) * q) / q, -Math.min(...items.map((b) => b.z)), pn - Math.max(...items.map((b) => b.z + b.d)));
+      brickGroup.children.forEach((hd) => {
+        if (dr.ids.includes(hd.userData.pid)) hd.position.set(hd.userData.base.x + dr.dx, hd.userData.base.y, hd.userData.base.z + dr.dz);
+      });
+      if (!live.current.selIds.includes(dr.id)) {
+        live.current.selIds = dr.ids; // a piece that was not selected becomes the selection as soon as it is dragged
+        setSelIds(dr.ids);
+      }
     };
     const onMove = (e) => {
       three.current.lastPointer = { clientX: e.clientX, clientY: e.clientY }; // for Space / Enter placement
       if (down) {
         if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) down.moved = true;
         if (down.moved) {
-          if (down.box) {
+          if (down.drag) {
+            dragPreview(e);
+          } else if (down.box) {
             const r = dom.getBoundingClientRect(); // Shift+drag draws a selection box instead of orbiting
             setMarquee({ x0: down.x - r.left, y0: down.y - r.top, x1: e.clientX - r.left, y1: e.clientY - r.top });
           } else if (down.pan && !walk.active) {
@@ -791,6 +830,10 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         boxSelect(d0, e);
         return;
       }
+      if (d0 && d0.drag && d0.moved) {
+        if (d0.drag.dx || d0.drag.dz) actions.current.dragMove(d0.drag.ids, d0.drag.dx, d0.drag.dz);
+        return;
+      }
       const wasClick = d0 && !d0.moved && !d0.pan;
       if (!wasClick) return;
       if (live.current.mode === "remove") removeAt(e);
@@ -798,6 +841,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       else placeAt(e);
     };
     const onLeave = () => {
+      if (three.current.lastPointer) three.current.lastGround = three.current.lastPointer; // Paste from the card still lands where you last pointed
       three.current.lastPointer = null;
       if (three.current.ghost) three.current.ghost.visible = false;
     };
@@ -831,6 +875,20 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         const tc = three.current;
         if (tc.playing) applyPieceAnims(brickGroup, (now - tc.playStart) / 1000); // piece motion
         spinFans(brickGroup, now / 1000); // fan blades turn all the time
+        // lightning lights the whole scene for a moment and, with Sound on, rumbles
+        const fl = brickGroup.userData.flashLevel || 0;
+        if (fl > 0.02) {
+          if (tc.hemiBase === undefined) tc.hemiBase = hemi.intensity;
+          hemi.intensity = tc.hemiBase + fl * 1.6;
+        } else if (tc.hemiBase !== undefined) {
+          hemi.intensity = tc.hemiBase;
+          tc.hemiBase = undefined;
+        }
+        const th = brickGroup.userData.thunder || 0;
+        if (th !== tc.thunderSeen) {
+          if (th > (tc.thunderSeen || 0) && live.current.sound) actions.current.rumble();
+          tc.thunderSeen = th;
+        }
         if (tc.assignLights) {
           const focus = walk.active ? walk.pos : new THREE.Vector3(orbit.tx, orbit.ty, orbit.tz);
           if (!tc.lampPool.focus || tc.lampPool.focus.distanceTo(focus) > 1) tc.assignLights(focus); // re-pick the nearest lamps after you move
@@ -842,7 +900,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     };
     loop();
 
-    three.current = { scene, camera, renderer, brickGroup, base, sun, orbit, updateCamera, panBy, walk, applyWalk, placeAt, removeAt, selectAt, hemi, lightGroup, playing: false, playStart: 0, selBoxes: [], pathViz: null, lastPointer: null, ghost: null, hover: null };
+    three.current = { scene, camera, renderer, brickGroup, base, sun, orbit, updateCamera, panBy, walk, applyWalk, placeAt, removeAt, selectAt, pointerCell: () => { const p = three.current.lastPointer || three.current.lastGround; const hit = p && pick(p); return hit ? { x: hit.point.x + live.current.N / 2, z: hit.point.z + live.current.N / 2 } : null; }, hemi, lightGroup, playing: false, playStart: 0, selBoxes: [], pathViz: null, lastPointer: null, ghost: null, hover: null };
 
     return () => {
       cancelAnimationFrame(raf);
@@ -899,12 +957,16 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         return A.pan(k === "arrowleft" ? -1 : k === "arrowright" ? 1 : 0, k === "arrowup" ? 1 : k === "arrowdown" ? -1 : 0);
       }
       if (mod) {
-        const map = { z: () => (e.shiftKey ? A.redo() : A.undo()), y: A.redo, s: A.save, o: A.openFile, k: A.focusSearch, a: A.selectAll, d: A.duplicate };
+        const map = { z: () => (e.shiftKey ? A.redo() : A.undo()), y: A.redo, s: A.save, o: A.openFile, k: A.focusSearch, a: A.selectAll, d: A.duplicate, c: A.copy, x: A.cut, v: A.paste };
         if (map[k]) {
           e.preventDefault();
           map[k]();
         }
         return;
+      }
+      if (e.altKey && A.hasSel && (k === "arrowup" || k === "arrowdown")) {
+        e.preventDefault();
+        return A.raise(k === "arrowup" ? 1 : -1);
       }
       if (e.altKey) return;
       const onCanvas = e.target === document.body || (t.renderer && e.target === t.renderer.domElement);
@@ -1018,12 +1080,14 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     for (const b of bricks) {
       const ty = TYPES[b.type];
       if (!ty.light || (cut != null && b.y >= cut)) continue;
-      const L = ty.light(cleanOpts(ty, b.opts), b.color);
-      if (!(L.power > 0)) continue;
       const a = (b.rot * Math.PI) / 2;
       const turn = ([x, y, z]) => new THREE.Vector3(x * Math.cos(a) + z * Math.sin(a), y, -x * Math.sin(a) + z * Math.cos(a));
-      const pos = new THREE.Vector3(b.x - N / 2 + b.w / 2, b.y * BH, b.z - N / 2 + b.d / 2).add(turn(L.pos));
-      lamps.push({ L, pos, dir: L.kind === "spot" ? turn(L.dir) : null });
+      const origin = new THREE.Vector3(b.x - N / 2 + b.w / 2, b.y * BH, b.z - N / 2 + b.d / 2);
+      // a piece may give one lamp or a list (light strings, trees); haloOnly lamps glow but don't cast real light
+      for (const L of [].concat(ty.light(cleanOpts(ty, b.opts), b.color))) {
+        if (!L || !(L.power > 0)) continue;
+        lamps.push({ L, pos: origin.clone().add(turn(L.pos)), dir: L.kind === "spot" ? turn(L.dir) : null });
+      }
     }
     const haloByColor = new Map();
     for (const lp of lamps) {
@@ -1035,13 +1099,13 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       }
       const sp = new THREE.Sprite(m);
       sp.position.copy(lp.pos);
-      const size = 0.8 + Math.min(lp.L.dist, 16) * 0.12 * (0.4 + lp.L.power);
+      const size = lp.L.size || 0.8 + Math.min(lp.L.dist, 16) * 0.12 * (0.4 + lp.L.power);
       sp.scale.set(size, size, 1);
       sp.raycast = () => {}; // halos are never picked
       lg.add(sp);
     }
     const sizes = poolSizes(t.renderer);
-    const pts = lamps.filter((l) => l.L.kind !== "spot");
+    const pts = lamps.filter((l) => l.L.kind !== "spot" && !l.L.haloOnly);
     const sps = lamps.filter((l) => l.L.kind === "spot");
     const pool = { point: [], spot: [] };
     for (let i = 0; i < Math.min(pts.length, sizes.point); i++) {
@@ -1536,6 +1600,50 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     coalesce.current = lastMotionEdit.current.id === key && now - lastMotionEdit.current.t < 700;
     lastMotionEdit.current = { id: key, t: now };
   };
+  // a rumble of thunder: a sharp crack, then low noise rolling away
+  const rumble = () => {
+    const ctx = audio.current;
+    if (!ctx) return;
+    try {
+      const sr = ctx.sampleRate;
+      const mk = (secs, fn) => {
+        const buf = ctx.createBuffer(1, Math.floor(sr * secs), sr);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = fn(i / d.length, i / sr);
+        return buf;
+      };
+      let last = 0;
+      const roll = mk(3.2, (u) => { last = (last + 0.03 * (Math.random() * 2 - 1)) / 1.03; return last * 7 * Math.exp(-u * 2.4) * Math.min(1, u * 14); });
+      const crack = mk(0.25, (u) => (Math.random() * 2 - 1) * Math.exp(-u * 14));
+      const play = (buf, type, freq, gain, delay) => {
+        const src = ctx.createBufferSource();
+        const fl = ctx.createBiquadFilter();
+        const gn = ctx.createGain();
+        src.buffer = buf;
+        fl.type = type;
+        fl.frequency.value = freq;
+        gn.gain.value = gain;
+        src.connect(fl);
+        fl.connect(gn);
+        gn.connect(ctx.destination);
+        src.start(ctx.currentTime + delay);
+      };
+      const far = 0.15 + Math.random() * 0.5; // the sound arrives a little after the flash
+      play(crack, "highpass", 1800, 0.35, far);
+      play(roll, "lowpass", 380, 1.0, far + 0.05);
+    } catch {
+      /* audio is optional */
+    }
+  };
+  const toggleSound = () => {
+    if (!sound && !audio.current) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) audio.current = new AC();
+    }
+    if (audio.current && audio.current.state === "suspended") audio.current.resume();
+    setSound(!sound);
+    if (!sound) setNote(audio.current ? "Sound on: thunder will rumble when lightning strikes" : "This browser cannot play sound");
+  };
   const togglePlay = () => {
     const t = three.current;
     if (!t.playing) {
@@ -1578,9 +1686,56 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     });
   };
   const raiseSel = (dir) => {
-    // move surface-attached pieces up or down a quarter layer (other pieces always rest on what is under them)
+    // lift or lower the selection by a quarter layer (or a whole layer for 1 and 4 stud steps); a lifted piece stays where it is put
+    if (!sel.length) return;
     const ids = new Set(selIds);
-    setBricks((prev) => prev.map((b) => (ids.has(b.id) && b.att ? { ...b, y: Math.max(0, b.y + dir * 0.25) } : b)));
+    const st = moveStep < 1 ? 0.25 : 1;
+    setBricks((prev) => prev.map((b) => (ids.has(b.id) ? { ...b, att: true, y: Math.max(0, b.y + dir * st) } : b)));
+  };
+  const dropSel = () => {
+    // let lifted pieces rest on whatever is under them again
+    const ids = new Set(selIds);
+    setBricks((prev) => settle(prev.map((b) => { if (!ids.has(b.id) || !b.att) return b; const nb = { ...b }; delete nb.att; return nb; })));
+  };
+  const dragMove = (ids, dx, dz) => {
+    const set = new Set(ids);
+    setBricks((prev) => {
+      const moved = prev.map((b) => (set.has(b.id) ? { ...b, x: b.x + dx, z: b.z + dz } : b));
+      if (moved.some((b) => set.has(b.id) && (b.x < 0 || b.z < 0 || b.x + b.w > N || b.z + b.d > N))) return prev;
+      return settle(moved);
+    });
+  };
+  const copySel = () => {
+    if (!sel.length) return setNote("Select a piece first, then copy it");
+    clip.current = JSON.parse(JSON.stringify(sel));
+    setHasClip(true);
+    setNote("Copied " + sel.length + (sel.length > 1 ? " pieces" : " piece") + ": point at the spot and press Ctrl+V");
+  };
+  const cutSel = () => {
+    if (!sel.length) return setNote("Select a piece first, then cut it");
+    copySel();
+    deleteSel();
+  };
+  const pasteClip = () => {
+    const items = clip.current;
+    if (!items || !items.length) return setNote("Nothing copied yet: select a piece and press Ctrl+C");
+    const minX = Math.min(...items.map((b) => b.x)), minZ = Math.min(...items.map((b) => b.z)), minY = Math.min(...items.map((b) => b.y));
+    const gw = Math.max(...items.map((b) => b.x + b.w)) - minX, gd = Math.max(...items.map((b) => b.z + b.d)) - minZ;
+    const cell = three.current.pointerCell && three.current.pointerCell(); // where the pointer is on the plate, if it is over it
+    const fine = items.every((b) => b.att);
+    const q = fine ? 4 : 1;
+    let nx = cell ? Math.round((cell.x - gw / 2) * q) / q : minX + 2;
+    let nz = cell ? Math.round((cell.z - gd / 2) * q) / q : minZ + 2;
+    nx = Math.min(Math.max(0, nx), Math.max(0, N - gw));
+    nz = Math.min(Math.max(0, nz), Math.max(0, N - gd));
+    const copies = items.map((b) => ({ ...JSON.parse(JSON.stringify(b)), id: ++idCounter.current, x: b.x - minX + nx, z: b.z - minZ + nz }));
+    setBricks((prev) => {
+      const lvl = stackInfo(prev, nx, nz, gw, gd).lvl;
+      return settle([...prev, ...copies.map((c, i) => ({ ...c, y: lvl + (items[i].y - minY) }))]);
+    });
+    setSelIds(copies.map((c) => c.id));
+    setMode("select");
+    setNote("Pasted " + copies.length + (copies.length > 1 ? " pieces" : " piece") + (cell ? " where the pointer is" : ""));
   };
   const rotateSel = (dir) => {
     if (!sel.length) return;
@@ -1849,6 +2004,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     play: togglePlay,
     hasSel,
     moveSel: (dx, dz, big) => moveSel(dx, dz, big ? 4 : moveStep),
+    rumble, dragMove, copy: copySel, cut: cutSel, paste: pasteClip, raise: raiseSel,
     deleteSel,
     duplicate: duplicateSel,
     selectAll,
@@ -1932,17 +2088,18 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
                     <button key={n} className={"chip sm" + (moveStep === n ? " on" : "")} aria-pressed={moveStep === n} onClick={() => setMoveStep(n)}>{n} stud{n > 1 ? "s" : ""} per step</button>
                   ))}
                 </div>
-                {sel.some((b) => b.att) && (
-                  <div className="row" style={{ marginBottom: 8 }}>
-                    <button className="btn sm" onClick={() => raiseSel(1)} title="Raise surface-attached pieces a quarter layer">Raise</button>
-                    <button className="btn sm" onClick={() => raiseSel(-1)} title="Lower surface-attached pieces a quarter layer">Lower</button>
-                    <span className="note" style={{ margin: 0 }}>¼ layer · stuck-on pieces only</span>
-                  </div>
-                )}
+                <div className="row" style={{ marginBottom: 8, flexWrap: "wrap" }}>
+                  <button className="btn sm" onClick={() => raiseSel(1)} title="Lift the selection (Alt+Up)">Lift up</button>
+                  <button className="btn sm" onClick={() => raiseSel(-1)} title="Lower the selection (Alt+Down)">Lower</button>
+                  {sel.some((b) => b.att) && <button className="btn sm" onClick={dropSel} title="Let the pieces rest on what is under them again">Drop down</button>}
+                  <span className="note" style={{ margin: 0 }}>or drag a piece with the mouse</span>
+                </div>
                 <div className="row" style={{ marginBottom: 0, flexWrap: "wrap" }}>
                   <button className="btn sm" onClick={() => rotateSel(1)} title="Turn (R)">Rotate</button>
                   <button className="btn sm" onClick={focusSel} title="Point the camera at the selection (Shift+F)">Focus</button>
-                  <button className="btn sm" onClick={duplicateSel} title="Duplicate (Ctrl+D)">Duplicate</button>
+                  <button className="btn sm" onClick={duplicateSel} title="Duplicate next to it (Ctrl+D)">Duplicate</button>
+                  <button className="btn sm" onClick={copySel} title="Copy (Ctrl+C), then point at a spot and press Ctrl+V">Copy</button>
+                  <button className="btn sm" onClick={pasteClip} disabled={!hasClip} title="Paste where the pointer was over the plate (Ctrl+V)">Paste</button>
                   <button className="btn sm" onClick={deleteSel} title="Delete (Delete key)">Delete</button>
                 </div>
               </>
@@ -2080,6 +2237,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         </div>
 
         <button className={on(playing).trim()} onClick={togglePlay} title="Play or pause piece motion (T)">{playing ? "Pause" : "Play"}</button>
+        <button className={on(sound).trim()} onClick={toggleSound} aria-pressed={sound} title="Thunder sound for lightning storms">Sound</button>
 
         <div className="grp">
           <button className={on(attach).trim()} onClick={() => actions.current.toggleAttach()} aria-pressed={attach} title="Stick to surfaces (Q): place pieces on the side, top or underside of walls and other pieces. On a side the piece turns to face out.">Stick to surfaces</button>
@@ -2229,7 +2387,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
             <span>{bricks.length} piece{bricks.length === 1 ? "" : "s"}</span>
             {bricks.some((b) => b.anim) && <span>{bricks.filter((b) => b.anim).length} with motion</span>}
             <span className="hint">
-              {walkMode ? "G switches Walk and Fly · Open Animate to save a stop in each room" : "Click or Space to place · Drag to orbit · Right-drag to pan · R rotate · ? all shortcuts"}
+              {walkMode ? "G switches Walk and Fly · Open Animate to save a stop in each room" : (mode === "select" ? "Drag a piece to move it · Ctrl+C / Ctrl+V copy and paste · Drag empty space to orbit · Right-drag to pan · ? all shortcuts" : "Click or Space to place · Drag to orbit · Right-drag to pan · R rotate · ? all shortcuts")}
             </span>
           </div>
 

@@ -164,18 +164,49 @@ export function applyPieceAnims(group, t) {
 export function spinFans(group, t) {
   const list = group.userData.spinners;
   if (!list) return;
+  let flashMax = 0;
   for (const o of list) {
     const s = o.userData.spin;
-    if (s.flicker) {
+    if (s.drift) {
+      // a cloud sliding to and fro, bobbing a little
+      o.position.x = s.drift.ax * Math.sin(t * s.drift.speed + s.ph * 6.283);
+      o.position.z = s.drift.az * Math.cos(t * s.drift.speed * 0.7 + s.ph * 6.283);
+    } else if (s.flash) {
+      // lightning: two quick strokes then a fade, once every period. A bolt shows only in its own slot; a cloud glows every time.
+      const F = s.flash;
+      const tt = t / F.period + (s.ph || 0);
+      const cyc = Math.floor(tt), u = tt - cyc;
+      let fl = 0;
+      if (u < 0.045) fl = (u < 0.012 ? 1 : u < 0.022 ? 0.25 : u < 0.034 ? 0.9 : 0.3) * (1 - (u / 0.045) * 0.5);
+      if (F.slots && cyc % F.slots !== F.slot) fl = 0;
+      if (F.mode === "vis") o.visible = fl > 0.05;
+      else o.material.emissiveIntensity = fl * F.k;
+      if (F.thunder) {
+        flashMax = Math.max(flashMax, fl);
+        if (fl > 0.05 && !s.on) group.userData.thunder = (group.userData.thunder || 0) + 1; // the app plays the rumble
+        s.on = fl > 0.05;
+      }
+    } else if (s.flicker) {
       // a flame: its height and width shimmer
       o.scale.set(1 + 0.12 * Math.sin(t * 13 + s.ph), 1 + 0.3 * Math.sin(t * 17 + s.ph * 2.3) + 0.12 * Math.sin(t * 29), 1 + 0.12 * Math.sin(t * 11 + s.ph));
+    } else if (s.fall) {
+      // falling snow or rain: loops from the top to the bottom, drifting a little
+      const f = s.fall;
+      const u = (t * f.speed + s.ph) % 1;
+      o.position.y = f.top - u * f.h;
+      o.position.x = f.x + Math.sin(t * 1.3 + s.ph * 9) * f.sway;
+      o.position.z = f.z + Math.cos(t * 1.1 + s.ph * 7) * f.sway;
+    } else if (s.pulse) {
+      // a twinkling bulb: its size breathes
+      o.scale.setScalar(1 + s.pulse.amp * Math.sin(s.pulse.speed * t + s.ph));
     } else if (s.amp !== undefined) {
       // swings back and forth; a rocker also rolls along the floor as it tips
       const a = s.amp * Math.sin(s.speed * t + (s.ph || 0));
-      o.rotation[s.axis] = a;
+      o.rotation[s.axis] = (s.base || 0) + a;
       if (s.roll) o.position[s.roll.axis] = s.roll.base + s.roll.k * a;
     } else o.rotation[s.axis] = s.speed * t;
   }
+  group.userData.flashLevel = flashMax; // how bright the sky is right now (the app lights the scene with it)
 }
 
 /* Put every animated piece back where it was placed. */

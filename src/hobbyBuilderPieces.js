@@ -6066,38 +6066,113 @@ const rainM = mat("#9FD0F5", { transparent: true, opacity: 0.75, roughness: 0.2,
 const rwater = mat("#5FA8D8", { transparent: true, opacity: 0.72, roughness: 0.1, metalness: 0.1 });
 const snowLump = (g, x, y, z, rx, ry, rz) => Sph(g, 1, snowX, x, y, z).scale.set(rx, ry, rz);
 
+const rainRing = mat("#DCEEFF", { transparent: true, opacity: 0.7, roughness: 0.3 });
+const boltM = mat("#FFFBE0", { emissive: "#FFF3B0", emissiveIntensity: 2.4, roughness: 0.3 });
+const boltGlow = mat("#BFD4FF", { transparent: true, opacity: 0.35, emissive: "#BFD4FF", emissiveIntensity: 1.2 });
+// where rain and snow land: rain splashes ring out and snow settles in little drifts
+const groundFx = (g, kind, x0, x1, z0, z1, n, seed = 0) => {
+  for (let i = 0; i < n; i++) {
+    const x = x0 + rnd(i * 3 + seed + 1) * (x1 - x0), z = z0 + rnd(i * 3 + seed + 2) * (z1 - z0);
+    if (kind === "rain") {
+      const r = add(g, G(THREE.TorusGeometry, 0.07, 0.012, 4, 12), rainRing, x, 0.03, z);
+      r.rotation.x = Math.PI / 2;
+      pulsing(r, 0.85, 4 + 3 * rnd(i + seed), rnd(i * 7 + seed));
+    } else Sph(g, 0.07 + 0.05 * rnd(i + seed + 5), snowX, x, 0.02, z).scale.set(1.2, 0.3, 1.2);
+  }
+};
+// a jagged bolt from (x, top) down to the ground; it only shows during its flash
+const boltAt = (g, x, z, top, seed, spin) => {
+  const bg = new THREE.Group();
+  let px = x, py = top;
+  const pts = [[px, py]];
+  for (let k = 1; py > 0.12; k++) {
+    py = Math.max(0.12, py - 0.35 - 0.25 * rnd(seed + k));
+    px = x + (rnd(seed * 3 + k * 7) - 0.5) * 0.7 * Math.min(1, k / 3 + 0.2);
+    pts.push([px, py]);
+  }
+  for (let k = 0; k < pts.length - 1; k++) {
+    tube(bg, [pts[k][0], pts[k][1], z], [pts[k + 1][0], pts[k + 1][1], z], 0.03, boltM);
+    tube(bg, [pts[k][0], pts[k][1], z], [pts[k + 1][0], pts[k + 1][1], z], 0.08, boltGlow);
+  }
+  const mid = pts[Math.floor(pts.length / 2)];
+  tube(bg, [mid[0], mid[1], z], [mid[0] + 0.45, mid[1] - 0.5, z], 0.02, boltM); // a fork
+  Sph(bg, 0.22, boltGlow, pts[pts.length - 1][0], 0.1, z).scale.set(1.6, 0.2, 1.6); // glow where it strikes
+  bg.userData.spin = spin;
+  g.add(bg);
+  return bg;
+};
+const cloudDrift = (grp, ax, speed) => {
+  grp.userData.spin = { drift: { ax, az: Math.min(0.15, ax * 0.2 + 0.05), speed }, ph: 0 };
+  return grp;
+};
+
 regCustom("xcloud", "Cloud", [
   { key: "w", label: "Width", kind: "num", min: 3, max: 10, step: 1, def: 5 },
   { key: "d", label: "Depth", kind: "num", min: 2, max: 6, step: 1, def: 3 },
   { key: "tall", label: "Fall height", kind: "num", min: 2, max: 10, step: 1, def: 5 },
-  { key: "mood", label: "Weather", kind: "sel", def: "snow", options: [["snow", "Snowing"], ["rain", "Raining"], ["rainstorm", "Heavy rain (dark clouds)"], ["fluffy", "Fluffy, no precipitation"], ["storm", "Grey snow clouds"]] },
+  { key: "mood", label: "Weather", kind: "sel", def: "snow", options: [["snow", "Snowing"], ["rain", "Raining"], ["rainstorm", "Heavy rain (dark clouds)"], ["thunder", "Thunderstorm (lightning)"], ["fluffy", "Fluffy, no precipitation"], ["storm", "Grey snow clouds"]] },
+  { key: "move", label: "Cloud movement", kind: "sel", def: "drift", options: [["still", "Still"], ["drift", "Drifting slowly"], ["fast", "Blowing along"]] },
+  { key: "travel", label: "Drift distance (studs)", kind: "num", min: 0, max: 4, step: 1, def: 1 },
+  { key: "ground", label: "Splashes or snow on the ground", kind: "tog", def: true },
 ], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
   const g = new THREE.Group();
   const W = o.w, D = o.d, H = o.tall * BH;
-  const dark = o.mood === "rainstorm", grey = o.mood === "storm" || o.mood === "rain";
-  const cm = dark ? mat("#6B7587", { roughness: 1 }) : grey ? mat("#B9C2CF", { roughness: 1 }) : mat("#FFFFFF", { roughness: 1 });
-  const cm2 = dark ? mat("#535C6C", { roughness: 1 }) : grey ? mat("#9AA5B5", { roughness: 1 }) : mat("#EEF3FA", { roughness: 1 });
-  const n = Math.round(W * D * 1.3);
+  const thunder = o.mood === "thunder";
+  const dark = o.mood === "rainstorm" || thunder, grey = o.mood === "storm" || o.mood === "rain";
+  const raining = o.mood === "rain" || o.mood === "rainstorm" || thunder;
+  const tv = o.move === "still" ? 0 : Math.max(0, Math.min(o.travel, (W - 2) / 2));
+  const sky = new THREE.Group(); // everything that travels with the cloud
+  g.add(sky);
+  if (tv > 0) cloudDrift(sky, tv, o.move === "fast" ? 0.5 : 0.22);
+  const mk = (col, glow) => (glow ? new THREE.MeshStandardMaterial({ color: col, roughness: 1, emissive: "#BCD0FF", emissiveIntensity: 0 }) : mat(col, { roughness: 1 }));
+  const cm = dark ? mk("#5E6779", thunder) : grey ? mk("#B9C2CF") : mk("#FFFFFF");
+  const cm2 = dark ? mk("#454D5C", thunder) : grey ? mk("#9AA5B5") : mk("#EEF3FA");
+  const x0 = 0.5 + tv, x1 = W - 0.5 - tv, wb = Math.max(1, x1 - x0);
+  const n = Math.max(5, Math.round((wb + 1) * D * 1.3));
+  const firstOf = {};
   for (let i = 0; i < n; i++) {
-    const x = 0.5 + rnd(i * 3 + 1) * (W - 1), z = 0.5 + rnd(i * 3 + 2) * (D - 1);
-    const edge = Math.min(x, W - x, z, D - z) / (Math.min(W, D) / 2);
+    const x = x0 + rnd(i * 3 + 1) * wb, z = 0.5 + rnd(i * 3 + 2) * (D - 1);
+    const edge = Math.min(x - x0 + 0.5, x1 - x + 0.5, z, D - z) / (Math.min(wb + 1, D) / 2);
     const r = 0.3 + 0.28 * Math.min(1, edge + 0.3) * (0.6 + rnd(i * 3 + 3));
-    Sph(g, r, i % 3 ? cm : cm2, x, H - r * 0.85 - 0.02 - (1 - Math.min(1, edge)) * 0.15, z).scale.set(1.15, 0.8, 1.1);
-  }
-  if (o.mood === "rain" || o.mood === "rainstorm") {
-    const m = Math.min(90, Math.round(W * D * (dark ? 7 : 4)));
-    for (let i = 0; i < m; i++) {
-      const x = 0.4 + rnd(i * 5 + 11) * (W - 0.8), z = 0.4 + rnd(i * 5 + 12) * (D - 0.8);
-      falling(Cyl(g, 0.009, 0.009, 0.2, rainM, x, H, z), { x, z, top: H - 0.5, h: H - 0.5, speed: 0.55 + 0.35 * rnd(i * 5 + 9), sway: 0.015 }, rnd(i * 5 + 13));
+    const m = i % 3 ? cm : cm2;
+    const puff = Sph(sky, r, m, x, H - r * 0.85 - 0.02 - (1 - Math.min(1, edge)) * 0.15, z);
+    puff.scale.set(1.15, 0.8, 1.1);
+    if (thunder && !firstOf[m.uuid]) {
+      firstOf[m.uuid] = true; // the cloud lights up from inside with each flash
+      puff.userData.spin = { flash: { period: 6.5, mode: "glow", k: 0.9, thunder: m === cm }, ph: 0.15 };
     }
+  }
+  const fx0 = x0 - 0.1, fx1 = x1 + 0.1;
+  if (raining) {
+    const m = Math.min(100, Math.round((wb + 1) * D * (dark ? 7 : 4)));
+    for (let i = 0; i < m; i++) {
+      const x = fx0 + rnd(i * 5 + 11) * (fx1 - fx0), z = 0.4 + rnd(i * 5 + 12) * (D - 0.8);
+      falling(Cyl(sky, 0.009, 0.009, 0.2, rainM, x, H, z), { x, z, top: H - 0.5, h: H - 0.5, speed: (thunder ? 0.75 : 0.55) + 0.35 * rnd(i * 5 + 9), sway: 0.015 }, rnd(i * 5 + 13));
+    }
+    if (o.ground) groundFx(sky, "rain", fx0, fx1, 0.4, D - 0.4, Math.min(22, Math.round((wb + 1) * D * (dark ? 1.6 : 1))));
   } else if (o.mood !== "fluffy") {
-    const m = Math.min(70, Math.round(W * D * 4));
+    const m = Math.min(70, Math.round((wb + 1) * D * 4));
     for (let i = 0; i < m; i++) {
-      const x = 0.4 + rnd(i * 5 + 11) * (W - 0.8), z = 0.4 + rnd(i * 5 + 12) * (D - 0.8);
-      const fl = Sph(g, 0.035 + 0.02 * rnd(i + 5), snowFlake, x, H, z);
-      falling(fl, { x, z, top: H - 0.55, h: H - 0.6, speed: 0.12 + 0.08 * rnd(i + 9), sway: 0.12 }, rnd(i * 5 + 13));
+      const x = fx0 + rnd(i * 5 + 11) * (fx1 - fx0), z = 0.4 + rnd(i * 5 + 12) * (D - 0.8);
+      falling(Sph(sky, 0.035 + 0.02 * rnd(i + 5), snowFlake, x, H, z), { x, z, top: H - 0.55, h: H - 0.6, speed: 0.12 + 0.08 * rnd(i + 9), sway: 0.12 }, rnd(i * 5 + 13));
     }
+    if (o.ground) groundFx(sky, "snow", fx0, fx1, 0.4, D - 0.4, Math.min(24, Math.round((wb + 1) * D * 1.2)));
   }
+  if (thunder) {
+    const nb = Math.max(2, Math.min(4, Math.round(W / 2.5)));
+    for (let i = 0; i < nb; i++) boltAt(sky, x0 + ((i + 0.5) / nb) * wb, 0.5 + D * (0.3 + 0.4 * rnd(i + 3)), H - 0.7, 11 + i * 17, { flash: { period: 6.5, mode: "vis", slot: i, slots: nb }, ph: 0.15 });
+  }
+  return g;
+});
+
+regCustom("xlightning", "Lightning bolt", [
+  { key: "tall", label: "Height", kind: "num", min: 3, max: 12, step: 1, def: 6 },
+  { key: "often", label: "Strikes", kind: "sel", def: "mid", options: [["rare", "Now and then"], ["mid", "Every few seconds"], ["often", "Often"]] },
+], (o) => ({ w: 2, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const period = o.often === "rare" ? 9 : o.often === "often" ? 3.5 : 6;
+  boltAt(g, 1, 0.5, H - 0.1, 5, { flash: { period, mode: "vis", thunder: true }, ph: 0.2 });
   return g;
 });
 
@@ -6106,6 +6181,7 @@ regCustom("xsnowfall", "Falling snow", [
   { key: "d", label: "Depth", kind: "num", min: 1, max: 8, step: 1, def: 3 },
   { key: "tall", label: "Height", kind: "num", min: 2, max: 12, step: 1, def: 5 },
   { key: "dens", label: "Amount", kind: "sel", def: "med", options: [["light", "Light"], ["med", "Steady"], ["heavy", "Blizzard"]] },
+  { key: "ground", label: "Snow settling on the ground", kind: "tog", def: true },
 ], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
   const g = new THREE.Group();
   const H = o.tall * BH, W = o.w, D = o.d;
@@ -6116,6 +6192,7 @@ regCustom("xsnowfall", "Falling snow", [
     const fl = Sph(g, 0.03 + 0.025 * rnd(i + 3), snowFlake, x, H, z);
     falling(fl, { x, z, top: H - 0.05, h: H - 0.1, speed: 0.1 + 0.1 * rnd(i * 4 + 3), sway: 0.1 }, rnd(i * 4 + 4));
   }
+  if (o.ground) groundFx(g, "snow", 0.15, W - 0.15, 0.15, D - 0.15, Math.min(24, Math.round(W * D * 1.5)));
   return g;
 });
 
@@ -6396,6 +6473,7 @@ regCustom("xrainfall", "Falling rain", [
   { key: "d", label: "Depth", kind: "num", min: 1, max: 8, step: 1, def: 3 },
   { key: "tall", label: "Height", kind: "num", min: 2, max: 12, step: 1, def: 5 },
   { key: "dens", label: "Rain", kind: "sel", def: "med", options: [["drizzle", "Drizzle"], ["med", "Steady rain"], ["heavy", "Downpour"]] },
+  { key: "ground", label: "Splashes on the ground", kind: "tog", def: true },
 ], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
   const g = new THREE.Group();
   const H = o.tall * BH, W = o.w, D = o.d;
@@ -6406,6 +6484,7 @@ regCustom("xrainfall", "Falling rain", [
     const x = 0.1 + rnd(i * 4 + 1) * (W - 0.2), z = 0.1 + rnd(i * 4 + 2) * (D - 0.2);
     falling(Cyl(g, 0.009, 0.009, len, rainM, x, H, z), { x, z, top: H - len / 2, h: H - len, speed: (o.dens === "heavy" ? 0.8 : 0.55) + 0.3 * rnd(i * 4 + 3), sway: 0.01 }, rnd(i * 4 + 4));
   }
+  if (o.ground) groundFx(g, "rain", 0.15, W - 0.15, 0.15, D - 0.15, Math.min(24, Math.round(W * D * (o.dens === "heavy" ? 2 : 1))));
   return g;
 });
 
@@ -6796,6 +6875,586 @@ regCustom("xgatemain", "Main gate with pillars", [
   return [[-(o.span + 2) / 2 + 0.5], [(o.span + 2) / 2 - 0.5]].map(([x]) => ({ kind: "point", pos: [x, y, 0], power: k * 0.7, color: toneOf(o, c), dist: 6 }));
 });
 
+
+/* ===================== old temple ===================== */
+const tileRed = mat("#B4432E", { roughness: 0.8 });
+const flameM = mat("#FFB23A", { emissive: "#FF8A1E", emissiveIntensity: 1.6, transparent: true, opacity: 0.95 });
+const darkDoor = mat("#1B1410", { roughness: 1 });
+const glowDoor = mat("#FFB765", { emissive: "#FF9A3A", emissiveIntensity: 1.1 });
+const brassTop = (g, x, y, z, s = 1) => {
+  Cyl(g, 0.16 * s, 0.2 * s, 0.1 * s, brassM, x, y + 0.05 * s, z);
+  Sph(g, 0.17 * s, brassM, x, y + 0.24 * s, z).scale.set(1, 1.15, 1);
+  Cyl(g, 0.05 * s, 0.08 * s, 0.14 * s, brassM, x, y + 0.45 * s, z);
+  Cone(g, 0.05 * s, 0.22 * s, 8, brassM, x, y + 0.63 * s, z);
+};
+const shrineH = (o) => Math.ceil((0.35 + 1.9 + o.tiers * 0.62 + 0.95) / BH);
+regCustom("xshrine", "Old temple shrine", [
+  { key: "tiers", label: "Roof tiers", kind: "num", min: 1, max: 3, step: 1, def: 2 },
+  { key: "mat", label: "Stone", kind: "sel", def: "sandstone", options: MAT_OPTS },
+  { key: "door", label: "Doorway", kind: "sel", def: "glow", options: [["glow", "Lamp lit inside"], ["dark", "Dark doorway"]] },
+  ...lightParams,
+], (o) => ({ w: 4, d: 4, h: shrineH(o), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const M = wallMatOf(o.mat, c);
+  const cx = 2, cz = 2;
+  B(g, 3.9, 0.18, 3.9, M.base, cx, 0.09, cz);
+  B(g, 3.5, 0.17, 3.5, M.body, cx, 0.265, cz);
+  B(g, 1.6, 0.07, 0.5, M.trim, cx, 0.39, 3.5); // steps to the door
+  B(g, 1.4, 0.07, 0.34, M.trim, cx, 0.46, 3.38);
+  const WH = 1.9, S = 2.5, y0 = 0.35;
+  B(g, S, WH, S, M.body, cx, y0 + WH / 2, cz);
+  jointLines(g, cx - S / 2 + 0.05, cx + S / 2 - 0.05, y0 + 0.1, y0 + WH - 0.2, [cz + S / 2 + 0.004, cz - S / 2 - 0.004], M.line, 0.4, 0.55, 40);
+  [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => B(g, 0.26, WH, 0.26, M.trim, cx + sx * (S / 2 - 0.1), y0 + WH / 2, cz + sz * (S / 2 - 0.1)))); // corner pilasters
+  B(g, S + 0.16, 0.14, S + 0.16, M.trim, cx, y0 + WH + 0.07, cz); // cornice
+  // doorway on the front
+  const dz = cz + S / 2 + 0.02;
+  [-0.5, 0.5].forEach((s) => B(g, 0.14, 1.3, 0.22, M.trim, cx + s * 0.72, y0 + 0.65, dz));
+  B(g, 1.58, 0.16, 0.22, M.trim, cx, y0 + 1.38, dz);
+  B(g, 1.3, 1.3, 0.04, o.door === "glow" ? glowDoor : darkDoor, cx, y0 + 0.65, dz - 0.1);
+  // roof tiers: stepped pyramids
+  let y = y0 + WH + 0.14;
+  for (let i = 0; i < o.tiers; i++) {
+    const side = 2.9 - i * 0.55;
+    B(g, side, 0.1, side, M.trim, cx, y + 0.05, cz);
+    Cone(g, (side * 0.95) / Math.SQRT2, 0.52, 4, tileRed, cx, y + 0.1 + 0.26, cz).rotation.y = Math.PI / 4;
+    y += 0.62;
+  }
+  brassTop(g, cx, y - 0.1, cz, 1.2);
+  // a lamp on each side of the steps
+  [-1.55, 1.55].forEach((dx) => { Cyl(g, 0.1, 0.13, 0.5, M.body, cx + dx, 0.5, 3.55); Cyl(g, 0.13, 0.09, 0.08, brassM, cx + dx, 0.78, 3.55); Cone(g, 0.045, 0.17, 6, flameM, cx + dx, 0.9, 3.55); });
+  return g;
+}, (o, c) => [{ kind: "point", pos: [0, 1.0, 0.9], power: (o.intensity / 100) * 0.9, color: toneOf(o, c), dist: 7 }]);
+
+const gopH = (o) => Math.ceil((2.9 + o.tiers * 0.8 + 0.95) / BH);
+regCustom("xgopuram", "Gopuram (temple gateway)", [
+  { key: "wide", label: "Width", kind: "num", min: 4, max: 8, step: 1, def: 6 },
+  { key: "tiers", label: "Tiers", kind: "num", min: 3, max: 7, step: 1, def: 5 },
+  { key: "mat", label: "Material", kind: "sel", def: "sandstone", options: MAT_OPTS },
+  { key: "paint", label: "Colored bands", kind: "tog", def: true },
+], (o) => ({ w: o.wide, d: 3, h: gopH(o), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const M = wallMatOf(o.mat, c);
+  const W = o.wide, cx = W / 2, cz = 1.5, BHt = 2.9;
+  const open = 1.5;
+  [-1, 1].forEach((s) => B(g, (W - open) / 2, BHt, 2.6, M.body, cx + s * (open / 2 + (W - open) / 4), BHt / 2, cz));
+  B(g, W, 0.3, 2.6, M.trim, cx, BHt - 0.15 + 0.0, cz).scale.set(1, 1, 1);
+  B(g, W + 0.0, 0.14, 2.9, M.trim, cx, 0.07, cz);
+  [-1, 1].forEach((s) => { B(g, 0.14, BHt - 0.4, 0.14, M.trim, cx + s * (open / 2 + 0.06), (BHt - 0.4) / 2 + 0.0, cz + 1.34); });
+  // carved niches either side of the gate
+  [-1, 1].forEach((s) => [0.8, 1.7].forEach((y) => B(g, 0.5, 0.6, 0.06, darkDoor, cx + s * (open / 2 + (W - open) / 4), y, cz + 1.33)));
+  let y = BHt, w = W - 0.2;
+  for (let i = 0; i < o.tiers; i++) {
+    const wi = w * (1 - 0.1 * i) * (1 - 0.0), d = 2.4 - i * 0.28;
+    const bandM = o.paint ? mat(["#C8102E", "#F2C230", "#2E7D5B", "#2E6FD6", "#E8E2D0", "#A5337A", "#F28C28"][i % 7], { roughness: 0.7 }) : M.trim;
+    B(g, wi, 0.14, d + 0.12, M.trim, cx, y + 0.07, cz); // ledge
+    B(g, wi - 0.12, 0.54, d, M.body, cx, y + 0.14 + 0.27, cz);
+    B(g, wi - 0.1, 0.08, d + 0.04, bandM, cx, y + 0.14 + 0.5, cz);
+    const nwin = Math.max(2, Math.floor(wi / 0.75));
+    for (let k = 0; k < nwin; k++) {
+      const x = cx - wi / 2 + (wi / nwin) * (k + 0.5);
+      B(g, 0.26, 0.3, 0.05, darkDoor, x, y + 0.14 + 0.25, cz + d / 2 + 0.01);
+      Cone(g, 0.11, 0.16, 6, M.trim, x, y + 0.14 + 0.5 + 0.12 + 0.02, cz + d / 2 - 0.05);
+    }
+    y += 0.8;
+    w = wi;
+  }
+  // barrel roof and the golden finials
+  const rw = w - 0.2;
+  const roof = add(g, G(THREE.CylinderGeometry, 0.55, 0.55, rw, 14, 1, false, 0, Math.PI), tileRed, cx, y + 0.06, cz);
+  roof.rotation.z = Math.PI / 2;
+  roof.scale.set(1, 1, (2.4 - (o.tiers - 1) * 0.28 + 0.0) / 1.1);
+  const cnt = Math.max(2, Math.min(5, Math.round(rw / 1.1)));
+  for (let k = 0; k < cnt; k++) brassTop(g, cx - rw / 2 + 0.3 + ((rw - 0.6) / (cnt - 1)) * k, y + 0.45, cz, 0.9);
+  return g;
+});
+
+regCustom("xdeepastambha", "Lamp tower (deepastambha)", [
+  { key: "rings", label: "Lamp rings", kind: "num", min: 3, max: 6, step: 1, def: 4 },
+  { key: "tall", label: "Height (layers)", kind: "num", min: 3, max: 8, step: 1, def: 4 },
+  { key: "flames", label: "Lit lamps", kind: "tog", def: true },
+  ...lightParams,
+], (o) => ({ w: 2, d: 2, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH, cx = 1, cz = 1;
+  const st = mat("#7E7A72", { roughness: 0.9 });
+  B(g, 1.9, 0.16, 1.9, st, cx, 0.08, cz);
+  B(g, 1.5, 0.16, 1.5, st, cx, 0.24, cz);
+  Cyl(g, 0.26, 0.34, 0.3, st, cx, 0.47, cz);
+  Cyl(g, 0.12, 0.14, H - 0.9, brassM, cx, 0.62 + (H - 0.9) / 2, cz);
+  const n = o.rings, top = H - 0.35, bottom = 0.9;
+  for (let r = 0; r < n; r++) {
+    const y = n === 1 ? top : bottom + ((top - bottom) * (r + 0.5)) / n;
+    const rad = 0.55 - r * 0.04;
+    Cyl(g, rad, 0.1, 0.06, brassM, cx, y, cz);
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2 + r * 0.4;
+      const px = cx + Math.cos(a) * rad * 0.82, pz = cz + Math.sin(a) * rad * 0.82;
+      Cyl(g, 0.07, 0.04, 0.07, brassM, px, y + 0.06, pz);
+      if (o.flames) flickering(Cone(g, 0.04, 0.16, 6, flameM, px, y + 0.18, pz), k + r);
+    }
+  }
+  brassTop(g, cx, H - 0.72, cz, 0.9);
+  return g;
+}, (o, c) => (o.flames ? [{ kind: "point", pos: [0, o.tall * BH * 0.6, 0], power: (o.intensity / 100) * 1.0, color: toneOf(o, c), dist: 7 }] : []));
+
+regCustom("xdhwaja", "Temple flag post", [
+  { key: "tall", label: "Height (layers)", kind: "num", min: 4, max: 10, step: 1, def: 7 },
+  { key: "wave", label: "Flag waves", kind: "tog", def: true },
+], (o) => ({ w: 2, d: 2, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH, cx = 1, cz = 1;
+  const st = mat("#7E7A72", { roughness: 0.9 });
+  B(g, 1.8, 0.2, 1.8, st, cx, 0.1, cz);
+  B(g, 1.3, 0.2, 1.3, st, cx, 0.3, cz);
+  Cyl(g, 0.1, 0.14, H - 0.6, mat("#C9A25A", { metalness: 0.5, roughness: 0.4 }), cx, 0.4 + (H - 0.6) / 2 - 0.0, cz);
+  for (let y = 1.0; y < H - 0.8; y += 1.1) Cyl(g, 0.16, 0.16, 0.09, brassM, cx, y, cz);
+  Sph(g, 0.14, brassM, cx, H - 0.2, cz);
+  Cone(g, 0.06, 0.2, 8, brassM, cx, H - 0.0 - 0.05, cz);
+  const pv = new THREE.Group();
+  pv.position.set(cx, 0, cz);
+  g.add(pv);
+  B(pv, 0.6, 0.45, 0.025, mat(c, { roughness: 0.8 }), 0.38, H - 0.55, 0);
+  Cone(pv, 0.225, 0.3, 3, mat(c, { roughness: 0.8 }), 0.88, H - 0.55, 0).rotation.z = -Math.PI / 2;
+  if (o.wave) swaying(pv, "y", 0.35, 2.2);
+  return g;
+});
+
+regCustom("xtemplebell", "Temple bell", [
+  { key: "ring", label: "Swings", kind: "tog", def: true },
+], () => ({ w: 2, d: 1, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const wood = mat("#6A4423", { roughness: 0.8 });
+  [0.12, 1.88].forEach((x) => B(g, 0.16, 3.3, 0.2, wood, x, 1.65, 0.5));
+  B(g, 2.0, 0.18, 0.24, wood, 1, 3.3, 0.5);
+  B(g, 2.0, 0.1, 0.34, brassM, 1, 3.5, 0.5).scale.set(1, 1, 0.01 + 1);
+  B(g, 1.9, 0.14, 0.24, wood, 1, 0.07, 0.5);
+  const pv = new THREE.Group();
+  pv.position.set(1, 3.2, 0.5);
+  g.add(pv);
+  Cyl(pv, 0.02, 0.02, 0.5, black, 0, -0.25, 0);
+  add(pv, G(THREE.CylinderGeometry, 0.1, 0.38, 0.62, 18, 1, true), mat("#C79A2E", { metalness: 0.7, roughness: 0.3, side: THREE.DoubleSide }), 0, -0.82, 0);
+  Sph(pv, 0.1, brassM, 0, -0.55, 0);
+  Sph(pv, 0.07, black, 0, -1.12, 0);
+  Cyl(pv, 0.015, 0.015, 0.8, mat("#B9A27A"), 0, -1.45, 0.0);
+  if (o.ring) swaying(pv, "z", 0.35, 2.4);
+  return g;
+});
+
+regCustom("xtemplepond", "Temple pond (kulam)", [
+  { key: "w", label: "Width", kind: "num", min: 4, max: 10, step: 1, def: 6 },
+  { key: "d", label: "Length", kind: "num", min: 4, max: 10, step: 1, def: 6 },
+  { key: "steps", label: "Stone steps", kind: "num", min: 1, max: 3, step: 1, def: 3 },
+  { key: "lotus", label: "Lotus flowers", kind: "tog", def: true },
+  { key: "lamps", label: "Corner lamps", kind: "tog", def: true },
+], (o) => ({ w: o.w, d: o.d, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d, S = o.steps, T = 0.48;
+  const st = [mat("#8E8A82", { roughness: 0.9 }), mat("#A29E95", { roughness: 0.9 }), mat("#B5B1A7", { roughness: 0.9 }), mat("#C7C3B9", { roughness: 0.9 })];
+  for (let i = 0; i < S; i++) {
+    const h = (S - i) * 0.2, o0 = i * T, mt = st[i % 4];
+    B(g, W - 2 * o0, h, T + 0.02, mt, W / 2, h / 2, o0 + T / 2);
+    B(g, W - 2 * o0, h, T + 0.02, mt, W / 2, h / 2, D - o0 - T / 2);
+    B(g, T + 0.02, h, D - 2 * o0 - 2 * T, mt, o0 + T / 2, h / 2, D / 2);
+    B(g, T + 0.02, h, D - 2 * o0 - 2 * T, mt, W - o0 - T / 2, h / 2, D / 2);
+  }
+  const wx0 = S * T, wz0 = S * T, ww = W - 2 * wx0, wd = D - 2 * wz0;
+  B(g, ww + 0.02, 0.06, wd + 0.02, mat("#3E6F7E", { roughness: 0.8 }), W / 2, 0.03, D / 2);
+  B(g, ww, 0.04, wd, rwater, W / 2, 0.1, D / 2);
+  const pad = mat("#3F8E4A", { roughness: 0.8 });
+  const nl = Math.min(8, Math.max(2, Math.round(ww * wd * 0.35)));
+  for (let i = 0; i < nl; i++) {
+    const x = wx0 + 0.3 + rnd(i * 4 + 1) * (ww - 0.6), z = wz0 + 0.3 + rnd(i * 4 + 2) * (wd - 0.6), r = 0.16 + 0.1 * rnd(i + 5);
+    Cyl(g, r, r, 0.02, pad, x, 0.13, z);
+    if (o.lotus && i % 2 === 0) {
+      for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; Cone(g, 0.045, 0.16, 5, mat("#F59AB8", { roughness: 0.6 }), x + Math.cos(a) * 0.05, 0.22, z + Math.sin(a) * 0.05).rotation.set(Math.sin(a) * 0.5, 0, -Math.cos(a) * 0.5); }
+      Sph(g, 0.04, mat("#F2C230"), x, 0.17, z);
+    }
+  }
+  for (let i = 0; i < 3; i++) {
+    const r = add(g, G(THREE.TorusGeometry, 0.18, 0.012, 4, 20), rainRing, wx0 + ww * (0.25 + 0.25 * i), 0.13, wz0 + wd * (0.3 + 0.2 * ((i * 2) % 3)));
+    r.rotation.x = Math.PI / 2;
+    pulsing(r, 0.7, 1.6 + 0.4 * i, i * 1.7);
+  }
+  if (o.lamps) [[0.24, 0.24], [W - 0.24, 0.24], [0.24, D - 0.24], [W - 0.24, D - 0.24]].forEach(([x, z]) => {
+    const hh = S * 0.2;
+    Cyl(g, 0.11, 0.14, 0.4, st[3], x, hh + 0.2, z);
+    Cyl(g, 0.15, 0.1, 0.07, brassM, x, hh + 0.42, z);
+    flickering(Cone(g, 0.045, 0.16, 6, flameM, x, hh + 0.53, z), x + z);
+  });
+  return g;
+});
+
+regCustom("xmandapa", "Temple hall (mandapa)", [
+  { key: "w", label: "Width", kind: "num", min: 4, max: 10, step: 1, def: 6 },
+  { key: "d", label: "Depth", kind: "num", min: 4, max: 8, step: 1, def: 4 },
+  { key: "tall", label: "Height (layers)", kind: "num", min: 4, max: 6, step: 1, def: 4 },
+  { key: "pillar", label: "Pillars", kind: "sel", def: "stone", options: [["stone", "Carved stone"], ["wood", "Dark wood"]] },
+  { key: "roof", label: "Roof", kind: "sel", def: "tiled", options: [["tiled", "Kerala tiled hip roof"], ["slab", "Flat stone slab"]] },
+], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d, H = o.tall * BH;
+  const st = mat("#B3AEA2", { roughness: 0.9 }), stDark = mat("#8E8A82", { roughness: 0.9 });
+  const pm = o.pillar === "wood" ? mat("#5C3A1E", { roughness: 0.6 }) : st;
+  const roofH = o.roof === "tiled" ? 1.25 : 0.22, beam = 0.26, pl = 0.3;
+  const ph = H - roofH - beam - pl - 0.2;
+  B(g, W - 0.1, 0.18, D - 0.1, stDark, W / 2, 0.09, D / 2);
+  B(g, W - 0.4, 0.14, D - 0.4, st, W / 2, 0.25, D / 2);
+  B(g, 1.6, 0.1, 0.34, st, W / 2, 0.05, D - 0.2);
+  const nx = Math.max(2, Math.round(W / 2)), nz = Math.max(2, Math.round(D / 2));
+  const spots = [];
+  for (let i = 0; i <= nx; i++) { spots.push([0.45 + (i * (W - 0.9)) / nx, 0.45]); spots.push([0.45 + (i * (W - 0.9)) / nx, D - 0.45]); }
+  for (let j = 1; j < nz; j++) { spots.push([0.45, 0.45 + (j * (D - 0.9)) / nz]); spots.push([W - 0.45, 0.45 + (j * (D - 0.9)) / nz]); }
+  spots.forEach(([x, z]) => {
+    B(g, 0.38, 0.12, 0.38, stDark, x, pl + 0.06, z);
+    Cyl(g, 0.12, 0.14, ph, pm, x, pl + 0.12 + ph / 2, z);
+    Cyl(g, 0.15, 0.15, 0.06, pm, x, pl + 0.12 + 0.3, z);
+    B(g, 0.34, 0.1, 0.34, pm, x, pl + 0.12 + ph, z);
+  });
+  const by = pl + 0.12 + ph + 0.05;
+  [0.45, D - 0.45].forEach((z) => B(g, W - 0.3, beam, 0.26, pm, W / 2, by + beam / 2, z));
+  [0.45, W - 0.45].forEach((x) => B(g, 0.26, beam, D - 0.3, pm, x, by + beam / 2, D / 2));
+  if (o.roof === "tiled") {
+    const hg = new THREE.ConeGeometry(1, roofH, 4);
+    hg.rotateY(Math.PI / 4); // square base lined up with the hall, so it can be stretched to a rectangle
+    const r = add(g, hg, tileRed, W / 2, by + beam + roofH / 2, D / 2);
+    r.scale.set(W / 1.4142, 1, D / 1.4142);
+    brassTop(g, W / 2, by + beam + roofH - 0.55, D / 2, 0.7);
+  } else B(g, W - 0.1, roofH, D - 0.1, stDark, W / 2, by + beam + roofH / 2, D / 2);
+  return g;
+});
+
+/* ===================== ponds and fountain ===================== */
+const fishM = (col) => mat(col, { roughness: 0.4 });
+const fishAt = (g, x, y, z, col, s = 1) => {
+  Sph(g, 0.1 * s, fishM(col), x, y, z).scale.set(0.8, 0.7, 1.7);
+  Cone(g, 0.07 * s, 0.14 * s, 4, fishM(col), x, y, z + 0.2 * s).rotation.x = -Math.PI / 2;
+};
+const duckAt = (g, x, z, y = 0.14) => {
+  Sph(g, 0.16, mat("#FFFFFF", { roughness: 0.8 }), x, y + 0.04, z).scale.set(0.9, 0.75, 1.3);
+  Sph(g, 0.09, mat("#FFFFFF", { roughness: 0.8 }), x, y + 0.2, z - 0.14);
+  Cone(g, 0.035, 0.09, 6, mat("#F28C28"), x, y + 0.19, z - 0.25).rotation.x = -Math.PI / 2;
+  Cone(g, 0.07, 0.14, 4, mat("#FFFFFF"), x, y + 0.08, z + 0.2).rotation.x = Math.PI / 2 + 0.5;
+};
+regCustom("xpond", "Garden pond", [
+  { key: "w", label: "Width", kind: "num", min: 3, max: 8, step: 1, def: 5 },
+  { key: "d", label: "Length", kind: "num", min: 3, max: 8, step: 1, def: 4 },
+  { key: "life", label: "In the pond", kind: "sel", def: "koi", options: [["koi", "Koi fish"], ["duck", "Ducks"], ["lily", "Water lilies only"], ["none", "Empty"]] },
+  { key: "fountain", label: "Fountain", kind: "tog", def: false },
+  { key: "reeds", label: "Reeds and rocks", kind: "tog", def: true },
+], (o) => ({ w: o.w, d: o.d, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d, cx = W / 2, cz = D / 2;
+  const rx = W / 2 - 0.35, rz = D / 2 - 0.35;
+  const ell = (m, sx, sz, y, hgt) => { const e = Cyl(g, 0.5, 0.5, hgt, m, cx, y, cz); e.scale.set(sx, 1, sz); return e; };
+  ell(mat("#4A3A2A", { roughness: 1 }), W - 0.1, D - 0.1, 0.04, 0.08);
+  ell(mat("#2F6B7E", { roughness: 0.6 }), rx * 2 + 0.1, rz * 2 + 0.1, 0.09, 0.06);
+  ell(rwater, rx * 2, rz * 2, 0.14, 0.04);
+  const rock = [mat("#8A8A86", { roughness: 1 }), mat("#A09C94", { roughness: 1 }), mat("#74726C", { roughness: 1 })];
+  const nr = Math.round((W + D) * 2.2);
+  for (let i = 0; i < nr; i++) {
+    const a = (i / nr) * Math.PI * 2 + rnd(i) * 0.2, r = 0.17 + 0.12 * rnd(i + 9);
+    Sph(g, r, rock[i % 3], cx + Math.cos(a) * (rx + 0.05), r * 0.75, cz + Math.sin(a) * (rz + 0.05)).scale.set(1.2, 0.75, 1.0);
+  }
+  for (let i = 0; i < 3; i++) {
+    const r = add(g, G(THREE.TorusGeometry, 0.2, 0.012, 4, 20), rainRing, cx + rx * (0.5 - 0.5 * i * 0.6 + 0.2), 0.17, cz + rz * (0.3 * (i % 2 ? 1 : -1)));
+    r.rotation.x = Math.PI / 2;
+    pulsing(r, 0.7, 1.4 + 0.5 * i, i * 1.3);
+  }
+  const lilies = o.life !== "none" ? Math.round(Math.min(7, rx * rz * 0.9 + 1)) : 0;
+  const pad = mat("#3F8E4A", { roughness: 0.8 });
+  for (let i = 0; i < lilies; i++) {
+    const a = rnd(i * 5) * Math.PI * 2, rr = 0.25 + 0.6 * rnd(i * 5 + 1);
+    const x = cx + Math.cos(a) * rx * rr, z = cz + Math.sin(a) * rz * rr;
+    Cyl(g, 0.14 + 0.07 * rnd(i), 0.14, 0.02, pad, x, 0.17, z);
+    if (i % 2 === 0) { for (let k = 0; k < 5; k++) Cone(g, 0.04, 0.13, 5, mat(i % 4 ? "#FFFFFF" : "#F59AB8"), x + Math.cos(k * 1.26) * 0.04, 0.24, z + Math.sin(k * 1.26) * 0.04).rotation.set(Math.sin(k * 1.26) * 0.5, 0, -Math.cos(k * 1.26) * 0.5); }
+  }
+  if (o.life === "koi") {
+    [0, 1, 2].forEach((i) => {
+      const pv = new THREE.Group();
+      pv.position.set(cx, 0.11, cz);
+      g.add(pv);
+      const rr = (0.35 + 0.2 * i) * Math.min(rx, rz);
+      fishAt(pv, rr, 0, 0, ["#F28C28", "#FFFFFF", "#D61F2F"][i], 1.1);
+      pv.userData.spin = { axis: "y", speed: 0.5 - 0.12 * i, ph: 0 };
+      pv.rotation.y = i * 2;
+    });
+  } else if (o.life === "duck") {
+    [0, 1].forEach((i) => {
+      const pv = new THREE.Group();
+      pv.position.set(cx, 0.03, cz);
+      g.add(pv);
+      duckAt(pv, (0.45 + 0.15 * i) * Math.min(rx, rz) * 1.2, 0);
+      pv.userData.spin = { axis: "y", speed: 0.25 + 0.07 * i, ph: 0 };
+      pv.rotation.y = i * 3;
+    });
+  }
+  if (o.reeds) for (let i = 0; i < 9; i++) {
+    const a = 0.8 + i * 0.12, x = cx + Math.cos(a) * (rx + 0.3), z = cz + Math.sin(a) * (rz + 0.3);
+    const h = 0.55 + 0.35 * rnd(i + 3);
+    const rd = Cone(g, 0.025, h, 4, mat("#6E9B3F"), x, h / 2 + 0.05, z);
+    rd.rotation.z = (rnd(i) - 0.5) * 0.25;
+    Cyl(g, 0.03, 0.03, 0.14, mat("#7A4A22"), x, h + 0.0, z);
+  }
+  if (o.fountain) {
+    Cyl(g, 0.12, 0.2, 0.3, mat("#9A9690"), cx, 0.2, cz);
+    Cyl(g, 0.02, 0.02, 0.3, mat("#9A9690"), cx, 0.45, cz);
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2, rr = 0.12 + 0.1 * (i % 3);
+      falling(Sph(g, 0.022, rwater, cx + Math.cos(a) * rr, 0.6, cz + Math.sin(a) * rr), { x: cx + Math.cos(a) * rr, z: cz + Math.sin(a) * rr, top: 0.75, h: 0.58, speed: 0.7 + 0.2 * rnd(i), sway: 0 }, i / 12);
+    }
+  }
+  return g;
+});
+
+regCustom("xfountain", "Tiered fountain", [
+  { key: "tiers", label: "Tiers", kind: "num", min: 1, max: 3, step: 1, def: 2 },
+  { key: "flow", label: "Water", kind: "tog", def: true },
+], (o) => ({ w: 3, d: 3, h: 1 + o.tiers, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const st = mat("#B3AEA2", { roughness: 0.9 }), st2 = mat("#8E8A82", { roughness: 0.9 });
+  const cx = 1.5, cz = 1.5;
+  Cyl(g, 1.4, 1.45, 0.4, st2, cx, 0.2, cz);
+  Cyl(g, 1.3, 1.3, 0.04, mat("#3E6F7E"), cx, 0.38, cz);
+  Cyl(g, 1.3, 1.3, 0.04, rwater, cx, 0.42, cz);
+  let y = 0.4;
+  for (let t = 0; t < o.tiers; t++) {
+    const r = 0.8 - t * 0.28, h = 0.8;
+    Cyl(g, 0.14, 0.2, h, st, cx, y + h / 2, cz);
+    y += h;
+    Cyl(g, r, 0.16, 0.2, st, cx, y + 0.1, cz);
+    Cyl(g, r - 0.06, r - 0.06, 0.03, o.flow ? rwater : mat("#3E6F7E"), cx, y + 0.17, cz);
+    if (o.flow) for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2, px = cx + Math.cos(a) * (r - 0.02), pz = cz + Math.sin(a) * (r - 0.02);
+      falling(Sph(g, 0.025, rwater, px, y, pz), { x: px, z: pz, top: y + 0.1, h: y - 0.45 + 0.0, speed: 0.5 + 0.1 * rnd(i + t), sway: 0 }, i / 8 + t * 0.13);
+    }
+    y += 0.2;
+  }
+  Sph(g, 0.12, brassM, cx, y + 0.1, cz);
+  if (o.flow) for (let i = 0; i < 6; i++) falling(Sph(g, 0.02, rwater, cx + Math.cos(i) * 0.06, y + 0.2, cz + Math.sin(i) * 0.06), { x: cx + Math.cos(i) * 0.08 * (1 + i % 2), z: cz + Math.sin(i) * 0.08 * (1 + i % 2), top: y + 0.35, h: 0.5, speed: 0.9, sway: 0 }, i / 6);
+  return g;
+});
+
+/* ===================== mini theater ===================== */
+const velvet = (c) => mat(c, { roughness: 0.95 });
+regCustom("xstage", "Theater stage", [
+  { key: "w", label: "Width", kind: "num", min: 6, max: 12, step: 1, def: 8 },
+  { key: "curtain", label: "Curtains", kind: "sel", def: "half", options: [["closed", "Closed"], ["half", "Half open"], ["open", "Fully open"]] },
+  { key: "back", label: "Backdrop", kind: "sel", def: "night", options: [["night", "Night sky"], ["day", "Blue sky"], ["palace", "Palace hall"], ["plain", "Plain"]] },
+  { key: "spots", label: "Spotlights", kind: "tog", def: true },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+], (o) => ({ w: o.w, d: 4, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, H = 4 * BH, cx = W / 2;
+  const wood = mat("#7A5632", { roughness: 0.7 }), gold = mat("#D8A93A", { metalness: 0.7, roughness: 0.3 });
+  B(g, W - 0.1, 0.45, 3.0, wood, cx, 0.225, 1.8); // stage floor
+  B(g, W - 0.1, 0.03, 3.0, mat("#9A6B3A", { roughness: 0.6 }), cx, 0.465, 1.8);
+  B(g, W - 0.1, 0.5, 0.2, velvet(c), cx, 0.25, 3.35); // front skirt
+  // front steps
+  [0.14, 0.3].forEach((y, i) => B(g, 1.2 - i * 0.2, y, 0.3, wood, W - 1.0, y / 2, 3.75 - i * 0.25));
+  // backdrop
+  const bk = { night: "#10203F", day: "#7DB8E8", palace: "#E8DCC0", plain: "#D8D2C8" }[o.back];
+  B(g, W - 0.5, H - 0.9, 0.08, mat(bk, { roughness: 0.9 }), cx, 0.45 + (H - 0.9) / 2, 0.25);
+  if (o.back === "night") {
+    for (let i = 0; i < 22; i++) Sph(g, 0.03, mat("#FFF6C8", { emissive: "#FFF6C8", emissiveIntensity: 1.2 }), 0.7 + rnd(i * 2 + 1) * (W - 1.4), 1.4 + rnd(i * 2 + 2) * (H - 2.2), 0.31);
+    Sph(g, 0.3, mat("#FFF4C0", { emissive: "#FFF0A8", emissiveIntensity: 0.9 }), cx + W * 0.25, H - 1.5, 0.31).scale.set(1, 1, 0.2);
+  } else if (o.back === "day") {
+    Sph(g, 0.3, mat("#FFE066", { emissive: "#FFD23A", emissiveIntensity: 0.7 }), cx - W * 0.25, H - 1.4, 0.31).scale.set(1, 1, 0.2);
+    [[0.3, 1.8], [0.62, 2.1]].forEach(([f, y]) => Sph(g, 0.4, mat("#FFFFFF"), W * f + 0.5, y + 0.6, 0.31).scale.set(1.8, 0.6, 0.2));
+    B(g, W - 0.6, 0.5, 0.05, mat("#4E9A4A"), cx, 0.72, 0.31);
+  } else if (o.back === "palace") {
+    for (let i = 0; i < Math.floor(W / 1.6); i++) { const x = 1.2 + i * ((W - 2.4) / Math.max(1, Math.floor(W / 1.6) - 1)); B(g, 0.3, H - 1.5, 0.12, gold, x, 0.5 + (H - 1.5) / 2, 0.33); }
+  }
+  // proscenium frame: columns, beam, scalloped valance
+  [0.12, W - 0.12].forEach((x) => B(g, 0.3, H - 0.1, 0.5, gold, x, (H - 0.1) / 2 + 0.05, 3.2));
+  B(g, W, 0.45, 0.5, gold, cx, H - 0.5, 3.2);
+  for (let k = 0; k < Math.floor(W / 0.5); k++) Sph(g, 0.26, velvet(c), 0.35 + k * 0.5, H - 0.86, 3.28).scale.set(1, 0.8, 0.5);
+  // curtains: each drape is a row of folds and pulls aside as the stage opens
+  const frac = { closed: 0.5, half: 0.28, open: 0.1 }[o.curtain];
+  const dw = (W - 0.6) * frac, dh = H - 1.2;
+  [-1, 1].forEach((s) => {
+    const x0 = s < 0 ? 0.4 : W - 0.4 - dw;
+    const nf = Math.max(2, Math.round(dw / 0.22));
+    for (let k = 0; k < nf; k++) {
+      B(g, dw / nf + 0.01, dh, 0.14, velvet(k % 2 ? shade(c, 0.78) : c), x0 + (dw / nf) * (k + 0.5), 0.45 + dh / 2 + 0.0, 3.05 + (k % 2) * 0.05);
+    }
+    Cyl(g, 0.06, 0.06, 0.2, gold, s < 0 ? 0.4 + dw : W - 0.4 - dw, 1.4, 3.1).rotation.z = Math.PI / 2; // tie-back
+  });
+  // footlights and a lighting bar with spots
+  for (let k = 0; k < Math.floor(W / 0.8); k++) Sph(g, 0.06, mat("#FFD27A", { emissive: "#FFB84A", emissiveIntensity: 1.0 }), 0.6 + k * 0.8, 0.52, 3.3);
+  B(g, W - 0.6, 0.06, 0.06, black, cx, H - 1.0, 2.2);
+  const lamps = [];
+  if (o.spots) for (let k = 0; k < 3; k++) {
+    const x = cx + (k - 1) * Math.min(2.4, W / 3.4);
+    const col = ["#FF6A6A", "#FFFFFF", "#6AA8FF"][k];
+    Cyl(g, 0.12, 0.16, 0.3, black, x, H - 1.1, 2.2).rotation.x = 0.5;
+    Cyl(g, 0.09, 0.09, 0.03, mat(col, { emissive: col, emissiveIntensity: 1.3 }), x, H - 1.2, 2.34).rotation.x = 0.5;
+    const beam = Cone(g, 0.5, 1.5, 12, mat(col, { transparent: true, opacity: 0.14, emissive: col, emissiveIntensity: 0.4, depthWrite: false }), x, H - 1.95, 2.45);
+    beam.rotation.x = 0.35;
+  }
+  return g;
+}, (o) => {
+  if (!o.spots) return [];
+  const k = o.intensity / 100, H = 4 * BH;
+  return ["#FF8A8A", "#FFFFFF", "#8AB8FF"].map((col, i) => ({ kind: "point", pos: [(i - 1) * Math.min(2.4, o.w / 3.4), 1.6, 0.4], power: k * 0.55, color: col, dist: 6 }));
+});
+
+regCustom("xtheaterseats", "Theater seats", [
+  { key: "seats", label: "Seats per row", kind: "num", min: 2, max: 10, step: 1, def: 6 },
+  { key: "rows", label: "Rows", kind: "num", min: 1, max: 4, step: 1, def: 2 },
+  { key: "tier", label: "Raised rows", kind: "tog", def: true },
+], (o) => ({ w: Math.ceil(o.seats * 0.62 + 0.3), d: o.rows, h: Math.max(1, Math.ceil((0.2 * (o.tier ? o.rows - 1 : 0) + 1.1) / BH)), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = Math.ceil(o.seats * 0.62 + 0.3), sw = 0.62, x0 = (W - o.seats * sw) / 2;
+  const velv = velvet(c), dk = velvet(shade(c, 0.7)), fr = mat("#3A2A20", { roughness: 0.7 });
+  for (let r = 0; r < o.rows; r++) {
+    const y = o.tier ? (o.rows - 1 - r) * 0.2 : 0; // rows further back stand higher
+    const z = r + 0.5;
+    if (o.tier) B(g, W - 0.04, y + 0.08, 0.96, mat("#4A4046", { roughness: 0.9 }), W / 2, (y + 0.08) / 2, z);
+    for (let s = 0; s < o.seats; s++) {
+      const x = x0 + sw * (s + 0.5);
+      B(g, sw - 0.1, 0.14, 0.46, velv, x, y + 0.36, z - 0.05);
+      const bk = B(g, sw - 0.1, 0.5, 0.1, dk, x, y + 0.7, z + 0.22);
+      bk.rotation.x = -0.12;
+    }
+    for (let s = 0; s <= o.seats; s++) B(g, 0.07, 0.34, 0.5, fr, x0 + sw * s, y + 0.34, z - 0.02);
+  }
+  return g;
+});
+
+regCustom("xcinemascreen", "Cinema screen", [
+  { key: "w", label: "Width", kind: "num", min: 4, max: 12, step: 1, def: 8 },
+  { key: "tall", label: "Height (layers)", kind: "num", min: 3, max: 6, step: 1, def: 4 },
+  { key: "show", label: "Picture", kind: "sel", def: "scene", options: [["scene", "Sunset landscape"], ["blue", "Blue light"], ["off", "Switched off"]] },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+], (o) => ({ w: o.w, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, H = o.tall * BH, cx = W / 2;
+  const k = o.intensity / 50;
+  const emi = (col) => (o.show === "off" ? mat("#2A2A2E", { roughness: 0.9 }) : mat(col, { emissive: col, emissiveIntensity: k * 0.8 }));
+  const sw = W - 1.0, sh = H - 0.9;
+  B(g, W, H - 0.3, 0.16, mat("#141418", { roughness: 0.8 }), cx, 0.3 + (H - 0.3) / 2, 0.4);
+  if (o.show === "scene") {
+    B(g, sw, sh * 0.5, 0.04, emi("#F6A04A"), cx, 0.5 + sh * 0.75, 0.5);
+    B(g, sw, sh * 0.2, 0.04, emi("#E5603A"), cx, 0.5 + sh * 0.5 + sh * 0.1 - 0.0 + 0.0, 0.5);
+    B(g, sw, sh * 0.3, 0.04, emi("#3A2A55"), cx, 0.5 + sh * 0.15, 0.5);
+    Sph(g, sh * 0.13, emi("#FFE9A0"), cx + sw * 0.15, 0.5 + sh * 0.5, 0.52).scale.set(1, 1, 0.15);
+    [[-0.28, 0.5], [0.0, 0.7], [0.3, 0.55]].forEach(([f, hh]) => Cone(g, sw * 0.12, sh * 0.35 * hh * 1.4, 4, emi("#1E1830"), cx + f * sw, 0.5 + sh * 0.3 + sh * 0.35 * hh * 0.7 - 0.2, 0.52).scale.set(1, 1, 0.05));
+  } else B(g, sw, sh, 0.04, emi("#9CC4FF"), cx, 0.5 + sh / 2, 0.5);
+  // masking curtains and speakers
+  [0.28, W - 0.28].forEach((x) => B(g, 0.4, H - 0.4, 0.3, velvet(c), x, 0.3 + (H - 0.4) / 2, 0.55));
+  [0.7, W - 0.7].forEach((x) => { B(g, 0.34, 0.8, 0.3, black, x, 0.5, 0.3); Cyl(g, 0.1, 0.1, 0.03, mat("#444"), x, 0.5, 0.46).rotation.x = Math.PI / 2; });
+  B(g, W, 0.25, 0.4, mat("#3A2A20"), cx, 0.125, 0.5);
+  return g;
+}, (o) => (o.show === "off" ? [] : [{ kind: "point", pos: [0, o.tall * BH * 0.5, 0.6], power: (o.intensity / 100) * 0.7, color: o.show === "blue" ? "#B8D4FF" : "#FFB878", dist: 8 }]));
+
+regCustom("xprojector", "Film projector", [
+  { key: "run", label: "Running", kind: "tog", def: true },
+], () => ({ w: 2, d: 2, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const grey = mat("#5A5E66", { metalness: 0.5, roughness: 0.5 });
+  [[0.5, 0.6], [1.5, 0.6], [1.0, 1.7]].forEach(([x, z]) => tube(g, [x, 0.1, z], [1, 1.25, 1.35], 0.035, black)); // tripod
+  B(g, 0.7, 0.45, 1.0, mat("#2A2D33", { roughness: 0.6 }), 1, 1.5, 1.35);
+  Cyl(g, 0.15, 0.2, 0.3, black, 1, 1.5, 0.75).rotation.x = Math.PI / 2;
+  Cyl(g, 0.13, 0.13, 0.05, mat("#9CC4FF", { emissive: "#9CC4FF", emissiveIntensity: 1 }), 1, 1.5, 0.58).rotation.x = Math.PI / 2;
+  [0.8, 1.2].forEach((x, i) => {
+    const pv = new THREE.Group();
+    pv.position.set(x, 1.95, 1.45);
+    g.add(pv);
+    Cyl(pv, 0.27, 0.27, 0.05, grey, 0, 0, 0).rotation.x = Math.PI / 2;
+    for (let k = 0; k < 4; k++) B(pv, 0.5, 0.03, 0.07, black, 0, 0, 0).rotation.z = (k * Math.PI) / 4;
+    if (o.run) pv.userData.spin = { axis: "z", speed: i ? -2.4 : 2.4 };
+  });
+  const beam = Cone(g, 0.5, 0.5, 14, mat("#BFD8FF", { transparent: true, opacity: 0.12, emissive: "#BFD8FF", emissiveIntensity: 0.3, depthWrite: false }), 1, 1.5, 0.3);
+  beam.rotation.x = Math.PI / 2;
+  return g;
+}, () => [{ kind: "point", pos: [0, 1.5, -0.35], power: 0.35, color: "#BFD8FF", dist: 4 }]);
+
+regCustom("xmarquee", "Theater marquee sign", [
+  { key: "w", label: "Width", kind: "num", min: 4, max: 10, step: 1, def: 6 },
+  { key: "chase", label: "Chasing bulbs", kind: "tog", def: true },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+], (o) => ({ w: o.w, d: 1, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, H = 3 * BH, cx = W / 2;
+  const k = o.intensity / 50;
+  const gold = mat("#D8A93A", { metalness: 0.7, roughness: 0.3 });
+  B(g, 0.2, 1.6, 0.3, black, 0.4, 0.8, 0.5);
+  B(g, 0.2, 1.6, 0.3, black, W - 0.4, 0.8, 0.5);
+  const sy = 2.1, sh = H - 2.1 - 0.05;
+  B(g, W - 0.2, sh, 0.3, mat("#1B1E26", { roughness: 0.6 }), cx, sy + sh / 2, 0.5);
+  B(g, W - 0.7, sh - 0.35, 0.05, mat(c, { emissive: c, emissiveIntensity: k * 0.5 }), cx, sy + sh / 2, 0.66);
+  Sph(g, 0.22, gold, cx, sy + sh / 2, 0.7).scale.set(1, 1, 0.3);
+  for (let i = 0; i < 5; i++) Cone(g, 0.12, 0.4, 5, gold, cx - 0.8 + i * 0.4 - 0.0, sy + sh / 2 + (i % 2 ? 0.0 : 0.0), 0.7).rotation.z = 0;
+  const nb = Math.round(W * 2.6);
+  for (let i = 0; i < nb; i++) {
+    const x = 0.2 + ((W - 0.4) * (i + 0.5)) / nb;
+    [sy + 0.06, sy + sh - 0.06].forEach((y, r) => {
+      const b = Sph(g, 0.05, mat("#FFE08A", { emissive: "#FFC94A", emissiveIntensity: k * 1.1 }), x, y, 0.68);
+      if (o.chase) pulsing(b, 0.4, 5, i * 0.5 + r * 2);
+    });
+  }
+  [[0.7, 0.6], [W - 1.1, 0.6]].forEach(([x, y]) => { B(g, 0.4, 0.55, 0.05, black, x + 0.2, 0.9, 0.62); B(g, 0.34, 0.49, 0.03, mat(c, { roughness: 0.6 }), x + 0.2, 0.9, 0.65); });
+  return g;
+}, (o) => [{ kind: "point", pos: [0, 2.5, 0.9], power: (o.intensity / 100) * 0.7, color: "#FFD8A0", dist: 6 }]);
+
+regCustom("xticketbooth", "Ticket booth", [
+  { key: "awning", label: "Awning", kind: "tog", def: true },
+  ...lightParams,
+], () => ({ w: 2, d: 2, h: 3, top: false }), (c, o) => {
+  const g0 = new THREE.Group();
+  const g = new THREE.Group();
+  g0.add(g);
+  g.position.z = -0.15;
+  const wood = mat("#7A5632", { roughness: 0.7 });
+  B(g, 1.8, 2.2, 1.6, velvet(c), 1, 1.1, 1.0);
+  B(g, 1.9, 0.18, 1.7, wood, 1, 0.09, 1.0);
+  B(g, 1.0, 0.7, 0.05, glowMat(o, c), 1, 1.5, 1.82);
+  B(g, 1.2, 0.08, 0.3, wood, 1, 1.12, 1.95); // counter
+  [-0.55, 0.55].forEach((s) => B(g, 0.08, 0.8, 0.07, wood, 1 + s, 1.5, 1.82));
+  B(g, 0.5, 0.35, 0.04, mat("#FFF3C0", { emissive: "#FFF3C0", emissiveIntensity: 0.5 }), 1, 2.0, 1.83);
+  B(g, 2.0, 0.14, 1.8, wood, 1, 2.27, 1.0);
+  Cone(g, 1.3, 0.5, 4, mat("#8E2A2A", { roughness: 0.8 }), 1, 2.6, 1.0).rotation.y = Math.PI / 4;
+  if (o.awning) for (let k = 0; k < 7; k++) B(g, 0.27, 0.05, 0.4, mat(k % 2 ? "#FFFFFF" : "#C8102E"), 0.2 + k * 0.27 - 0.0 + 0.04, 2.0, 1.97).rotation.x = -0.25;
+  Sph(g, 0.1, mat("#FFE08A", { emissive: "#FFC94A", emissiveIntensity: 1 }), 1, 2.35, 1.9);
+  return g0;
+}, (o, c) => ({ kind: "point", pos: [0, 1.5, 0.6], power: (o.intensity / 100) * 0.5, color: toneOf(o, c), dist: 4 }));
+
+regCustom("xpopcorn", "Popcorn cart", [
+  { key: "canopy", label: "Striped canopy", kind: "tog", def: true },
+], () => ({ w: 2, d: 1, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const red = mat("#C8102E", { roughness: 0.6 }), wh = mat("#FFFFFF", { roughness: 0.6 });
+  B(g, 1.5, 0.7, 0.8, red, 1, 0.65, 0.5);
+  B(g, 1.55, 0.08, 0.85, wh, 1, 1.02, 0.5);
+  const glassM = mat("#CFE8F5", { transparent: true, opacity: 0.4, roughness: 0.1 });
+  B(g, 1.3, 0.6, 0.7, glassM, 1, 1.36, 0.5);
+  for (let i = 0; i < 26; i++) Sph(g, 0.07, mat(i % 3 ? "#FFF1B8" : "#F4DC8A", { roughness: 0.9 }), 0.45 + rnd(i * 2 + 1) * 1.1, 1.1 + rnd(i * 2 + 2) * 0.35, 0.25 + rnd(i * 2 + 3) * 0.5).scale.set(1, 0.85, 1);
+  [0.35, 1.65].forEach((x) => { Cyl(g, 0.22, 0.22, 0.08, black, x, 0.22, 0.5).rotation.x = Math.PI / 2; });
+  B(g, 1.6, 0.1, 0.06, wh, 1, 0.38, 0.9);
+  if (o.canopy) {
+    [0.3, 1.7].forEach((x) => Cyl(g, 0.025, 0.025, 0.55, steel, x, 1.7, 0.2));
+    for (let k = 0; k < 8; k++) B(g, 0.22, 0.05, 0.9, k % 2 ? wh : red, 0.35 + k * 0.215, 2.0 - 0.0, 0.5);
+  }
+  return g;
+});
+
+regCustom("xtheatermasks", "Theater masks", [], () => ({ w: 1, d: 1, h: 2, top: false }), (c) => {
+  const g = new THREE.Group();
+  const gold = mat("#D8A93A", { metalness: 0.7, roughness: 0.3 });
+  B(g, 0.9, 0.12, 0.5, mat("#3A2A20"), 0.5, 0.06, 0.5);
+  Cyl(g, 0.05, 0.05, 1.45, gold, 0.5, 0.8, 0.5);
+  B(g, 0.8, 0.8, 0.05, mat("#1B1E26"), 0.5, 1.6, 0.5);
+  const mask = (x, col, happy) => {
+    Sph(g, 0.24, mat(col, { metalness: 0.5, roughness: 0.3 }), x, 1.62, 0.54).scale.set(0.85, 1.05, 0.35);
+    [-0.07, 0.07].forEach((dx) => Sph(g, 0.04, black, x + dx, 1.7, 0.6).scale.set(1.3, 0.8, 0.4));
+    const m = add(g, G(THREE.TorusGeometry, 0.1, 0.018, 4, 12, Math.PI), black, x, 1.52 + (happy ? 0.03 : -0.0), 0.6);
+    m.rotation.z = happy ? Math.PI : 0;
+  };
+  mask(0.3, "#E8C95A", true);
+  mask(0.7, "#C9CED6", false);
+  return g;
+});
+
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
@@ -6811,6 +7470,9 @@ export const GROUPS = [
   { title: "Plants and stones", keys: ["pot", "bush", "flowers", "sunflower", "cactus", "grass", "hedge", "stone", "boulder"] },
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
   { title: "Arches and boundary walls", keys: ["xarch", "xwall", "xgatemain"] },
+  { title: "Old temple", keys: ["xshrine", "xgopuram", "xmandapa", "xdeepastambha", "xdhwaja", "xtemplebell", "xtemplepond"] },
+  { title: "Ponds and fountains", keys: ["xpond", "xfountain"] },
+  { title: "Mini theater", keys: ["xstage", "xtheaterseats", "xcinemascreen", "xprojector", "xmarquee", "xticketbooth", "xpopcorn", "xtheatermasks"] },
   { title: "Fences and gates", keys: ["fence2", "fence", "panelfence", "ironfence", "meshfence", "gate2", "gate4", "gateopen"] },
   { title: "Roof rails", keys: ["roofrail2", "roofrail4", "railcorner", "glassrail"] },
   { title: "Lounge chairs and benches", keys: ["recliner", "plantersChair", "sunlounger", "rockingchair", "chaise", "eggchair", "beanbag", "porchbench", "porchswing"] },
@@ -6829,7 +7491,7 @@ export const GROUPS = [
   { title: "Animals", keys: ["horse", "cow", "sheep", "pig", "goat", "chicken", "duck", "deer", "zebraanimal", "lion", "tiger", "bear", "panda", "elephant", "giraffe", "camel", "monkey", "penguin", "turtle", "frog", "crocodile", "dolphin"] },
   { title: "Santa and friends", keys: ["xsanta", "xsnowman", "xreindeer", "xsleigh", "xelf"] },
   { title: "Gifts and candy", keys: ["xgift", "xgiftpile", "xsack", "xcandycane"] },
-  { title: "Snow and sky", keys: ["xcloud", "xsnowfall", "xsnowmound", "xsnowroof", "xicicles", "xigloo"] },
+  { title: "Snow and sky", keys: ["xcloud", "xlightning", "xsnowfall", "xsnowmound", "xsnowroof", "xicicles", "xigloo"] },
   { title: "Rain and water", keys: ["xrainfall", "xpuddle", "xgutter", "xrainbarrel", "xumbrella", "xrainbow"] },
   { title: "Christmas house", keys: ["xgingerbread", "xfireplace", "xnativity", "xxlamp"] },
   { title: "Christmas trees and lights", keys: ["xtree", "xlightstring", "xgarland", "xwreath", "xstar", "xbauble", "xbells", "xsnowflake", "xstocking"] },
