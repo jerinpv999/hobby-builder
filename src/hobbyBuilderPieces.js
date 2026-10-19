@@ -6656,13 +6656,14 @@ const WALL_MATS = {
   brick: { c: "#A9503A", line: "#DCD2C2", trim: "#C46A4E" },
   sandstone: { c: "#C99A6B", line: "#9A7048", trim: "#E3BE90" },
   marble: { c: "#EDEAE2", line: "#B9B4A8", trim: "#FFFFFF" },
+  laterite: { c: "#B0623A", line: "#7D4226", trim: "#C98053" },
   color: null,
 };
 const wallMatOf = (style, c) => {
   const s = WALL_MATS[style] || { c, line: shade(c, 0.7), trim: shade(c, 1.15) };
   return { body: mat(s.c, { roughness: 0.9 }), line: mat(s.line, { roughness: 1 }), trim: mat(s.trim, { roughness: 0.8 }), base: mat(shade(s.c, 0.82), { roughness: 0.95 }) };
 };
-const MAT_OPTS = [["stone", "Grey stone"], ["brick", "Red brick"], ["sandstone", "Sandstone"], ["marble", "White marble"], ["color", "Chosen color"]];
+const MAT_OPTS = [["stone", "Grey stone"], ["brick", "Red brick"], ["laterite", "Laterite (Kerala red stone)"], ["sandstone", "Sandstone"], ["marble", "White marble"], ["color", "Chosen color"]];
 // thin joint lines over a face: rows run the full length, the joints are staggered
 function jointLines(g, x0, x1, y0, y1, zs, m, rowH, jointW, cap = 110) {
   const rows = Math.max(1, Math.round((y1 - y0) / rowH));
@@ -6745,14 +6746,14 @@ regCustom("xarch", "Arch and arcade", [
 regCustom("xwall", "Boundary wall", [
   { key: "len", label: "Length", kind: "num", min: 2, max: 16, step: 1, def: 8 },
   { key: "tall", label: "Height (layers)", kind: "num", min: 1, max: 4, step: 1, def: 2 },
-  { key: "style", label: "Style", kind: "sel", def: "plain", options: [["plain", "Plastered compound wall"], ["brick", "Brick"], ["stone", "Stone blocks"], ["jali", "Wall with jali (lattice) panels"], ["grille", "Low wall with iron grille"]] },
+  { key: "style", label: "Style", kind: "sel", def: "plain", options: [["plain", "Plastered compound wall"], ["brick", "Brick"], ["stone", "Stone blocks"], ["laterite", "Laterite blocks (Kerala)"], ["jali", "Wall with jali (lattice) panels"], ["grille", "Low wall with iron grille"]] },
   { key: "pillar", label: "Pillars", kind: "sel", def: "4", options: [["none", "No pillars"], ["ends", "At the ends only"], ["4", "Every 4 studs"], ["6", "Every 6 studs"]] },
   { key: "cap", label: "Top", kind: "sel", def: "flat", options: [["none", "Plain"], ["flat", "Flat coping"], ["tiled", "Tiled coping"], ["spikes", "Spikes"]] },
   { key: "thick", label: "Thickness", kind: "sel", def: "thin", options: [["thin", "Thin"], ["thick", "Thick"]] },
 ], (o) => ({ w: o.len, d: 1, h: o.tall, top: false }), (c, o) => {
   const g = new THREE.Group();
   const L = o.len, H = o.tall * BH, t = o.thick === "thick" ? 0.8 : 0.5, zc = 0.5;
-  const M = wallMatOf(o.style === "brick" ? "brick" : o.style === "stone" ? "stone" : "color", c);
+  const M = wallMatOf(o.style === "brick" ? "brick" : o.style === "stone" ? "stone" : o.style === "laterite" ? "laterite" : "color", c);
   const iron = mat("#1E2226", { metalness: 0.6, roughness: 0.45 });
   const pw = Math.max(0.62, t + 0.14);
   const pil = o.pillar === "none" ? [] : (() => {
@@ -6771,7 +6772,7 @@ regCustom("xwall", "Boundary wall", [
   B(g, L - 0.02 + 0.04, 0.22, t + 0.06, M.base, L / 2, 0.11, zc);
   if (o.style === "plain") [0.32, bodyH - 0.2].forEach((y, i) => B(g, L - 0.04, i ? 0.08 : 0.04, t + 0.02, M.trim, L / 2, y, zc));
   if (o.style === "brick") jointLines(g, 0.1, L - 0.1, 0.22, bodyH, faces, M.line, 0.3, 0.6, 120);
-  if (o.style === "stone") jointLines(g, 0.1, L - 0.1, 0.22, bodyH, faces, M.line, Math.max(0.4, bodyH / 6), 1.1, 90);
+  if (o.style === "stone" || o.style === "laterite") jointLines(g, 0.1, L - 0.1, 0.22, bodyH, faces, M.line, Math.max(0.4, bodyH / 6), o.style === "laterite" ? 0.9 : 1.1, 90);
   if (openStyle) {
     const y0 = baseH, y1 = bodyH;
     B(g, L - 0.02, 0.1, t + 0.04, M.trim, L / 2, y0 + 0.05, zc); // sill
@@ -6804,7 +6805,7 @@ regCustom("xwall", "Boundary wall", [
     [0.45, H - 0.38].forEach((y, i) => { if (y > 0.4) B(g, pw + 0.04, 0.06, pw + 0.04, M.trim, x, y, zc); });
     B(g, pw + 0.12, 0.08, pw + 0.12, M.trim, x, H - 0.22, zc);
     Cone(g, pw * 0.72, 0.18, 4, M.trim, x, H - 0.09, zc).rotation.y = Math.PI / 4;
-    if (o.style === "brick" || o.style === "stone") jointLines(g, x - pw / 2 + 0.02, x + pw / 2 - 0.02, 0.3, H - 0.4, [zc - pw / 2 - 0.004, zc + pw / 2 + 0.004], M.line, 0.3, 0.5, 20);
+    if (o.style === "brick" || o.style === "stone" || o.style === "laterite") jointLines(g, x - pw / 2 + 0.02, x + pw / 2 - 0.02, 0.3, H - 0.4, [zc - pw / 2 - 0.004, zc + pw / 2 + 0.004], M.line, 0.3, 0.5, 20);
   });
   return g;
 });
@@ -6830,7 +6831,7 @@ regCustom("xgatemain", "Main gate with pillars", [
     B(g, pw + 0.12, 0.3, pw + 0.12, M.base, x, 0.15, zc);
     B(g, pw + 0.06, 0.08, pw + 0.06, M.trim, x, ph * 0.45, zc);
     B(g, pw + 0.14, 0.12, pw + 0.14, M.trim, x, ph - 0.06, zc);
-    if (o.mat === "brick" || o.mat === "stone" || o.mat === "sandstone") jointLines(g, x - pw / 2 + 0.03, x + pw / 2 - 0.03, 0.35, ph - 0.2, [zc - pw / 2 - 0.004, zc + pw / 2 + 0.004], M.line, 0.35, 0.45, 30);
+    if (o.mat === "brick" || o.mat === "stone" || o.mat === "sandstone" || o.mat === "laterite") jointLines(g, x - pw / 2 + 0.03, x + pw / 2 - 0.03, 0.35, ph - 0.2, [zc - pw / 2 - 0.004, zc + pw / 2 + 0.004], M.line, 0.35, 0.45, 30);
     if (o.lamp) {
       Cyl(g, 0.17, 0.2, 0.06, iron, x, ph + 0.03, zc);
       Cyl(g, 0.15, 0.12, 0.26, glowMat(o, c), x, ph + 0.19, zc);
@@ -7455,6 +7456,117 @@ regCustom("xtheatermasks", "Theater masks", [], () => ({ w: 1, d: 1, h: 2, top: 
   return g;
 });
 
+
+/* ===================== padippura: the gateway building at the entrance of a Kerala compound ===================== */
+const padRise = (o) => ((o.span + 2) / 2 + 0.1) * 0.5;
+const padH = (o) => Math.ceil((0.2 + 2.6 + 0.3 + padRise(o) + 0.3) / BH);
+let padGableGeo = null;
+regCustom("xpadippura", "Padippura (entrance gate house)", [
+  { key: "span", label: "Passage width", kind: "num", min: 3, max: 6, step: 1, def: 4 },
+  { key: "deep", label: "Depth", kind: "num", min: 3, max: 5, step: 1, def: 3 },
+  { key: "wall", label: "Side walls", kind: "sel", def: "laterite", options: [...MAT_OPTS, ["open", "Open sides (posts only)"]] },
+  { key: "gate", label: "Wooden gate", kind: "sel", def: "open", options: [["none", "No gate"], ["closed", "Closed"], ["open", "Open"]] },
+  { key: "roof", label: "Roof", kind: "sel", def: "tile", options: [["tile", "Red clay tiles"], ["dark", "Dark tiles"], ["thatch", "Thatch"]] },
+  { key: "bench", label: "Raised seats (thinna)", kind: "tog", def: true },
+  { key: "lamp", label: "Hanging lamp", kind: "tog", def: true },
+  ...lightParams,
+], (o) => ({ w: o.span + 2, d: o.deep, h: padH(o), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.span + 2, D = o.deep, H = padH(o) * BH, cx = W / 2, rise = padRise(o);
+  const wood = mat("#5C3A1E", { roughness: 0.65 }), wood2 = mat("#7A4A24", { roughness: 0.7 });
+  const st = mat("#8E8A82", { roughness: 0.9 });
+  const M = o.wall === "open" ? null : wallMatOf(o.wall, c);
+  const ph = 2.6, yE = 0.2 + ph + 0.3; // eave height
+  // plinth and the stone threshold
+  B(g, W, 0.2, D, st, cx, 0.1, D / 2);
+  B(g, o.span - 1.0, 0.06, D - 0.2, mat("#B3AEA2", { roughness: 0.9 }), cx, 0.23, D / 2);
+  // side walls with a plastered band, or open
+  if (M) [-1, 1].forEach((s) => {
+    const x = s < 0 ? 0.35 : W - 0.35;
+    B(g, 0.7, ph - 0.1, D - 0.1, M.body, x, 0.2 + (ph - 0.1) / 2, D / 2);
+    B(g, 0.76, 0.14, D, M.trim, x, 0.2 + ph - 0.03, D / 2);
+  });
+  if (M && o.wall !== "color" && o.wall !== "marble") {
+    const jg = new THREE.Group(); // joint lines run along the passage, so draw them turned a quarter
+    jg.rotation.y = -Math.PI / 2;
+    g.add(jg);
+    jointLines(jg, 0.1, D - 0.1, 0.4, ph - 0.1, [-0.704, -0.004 * 0 + 0.004, -(W - 0.704), -(W + 0.004)], M.line, 0.45, 0.6, 40);
+  }
+  // wooden pillars (front and back of each side) with carved brackets, and the wall plates
+  const px = [1.0, W - 1.0], pz = [0.35, D - 0.35];
+  px.forEach((x) => pz.forEach((z) => {
+    B(g, 0.4, 0.14, 0.4, st, x, 0.27, z);
+    B(g, 0.3, ph - 0.2, 0.3, wood, x, 0.2 + 0.14 + (ph - 0.2) / 2 - 0.07, z);
+    B(g, 0.38, 0.1, 0.38, wood2, x, 0.2 + ph - 0.1, z);
+    [-1, 1].forEach((s) => Cone(g, 0.12, 0.34, 4, wood2, x + s * 0.28, 0.2 + ph - 0.18, z).rotation.z = -s * Math.PI / 2); // bracket arms
+  }));
+  [0.35, D - 0.35].forEach((z) => B(g, W - 0.1, 0.28, 0.3, wood, cx, yE - 0.14, z)); // beams along the front and back
+  [0.35, W - 0.35].forEach((x) => B(g, 0.3, 0.28, D - 0.1, wood, x, yE - 0.14, D / 2));
+  // gable roof: the ridge runs through the passage, the gable boards face the road
+  const yR = yE + rise, hw = W / 2;
+  const slope = Math.hypot(hw, rise), ang = Math.atan2(rise, hw);
+  const roofM = o.roof === "thatch" ? mat("#B89A5A", { roughness: 1 }) : o.roof === "dark" ? mat("#4A3F3A", { roughness: 0.85 }) : mat("#B4432E", { roughness: 0.8 });
+  const rib = o.roof === "thatch" ? mat("#8F7440", { roughness: 1 }) : o.roof === "dark" ? mat("#3A312D") : mat("#8E3220", { roughness: 0.8 });
+  [-1, 1].forEach((s) => {
+    const xc = cx + s * hw / 2, yc = (yE + yR) / 2 + 0.07;
+    B(g, slope, 0.14, D - 0.02, roofM, xc, yc, D / 2).rotation.z = -s * ang;
+    for (let z = 0.2; z < D - 0.1; z += 0.22) {
+      const r = B(g, slope - 0.05, 0.05, 0.05, rib, xc, yc + 0.08, z);
+      r.rotation.z = -s * ang;
+    }
+  });
+  const ridge = Cyl(g, 0.12, 0.12, D - 0.02, rib, cx, yR + 0.12, D / 2);
+  ridge.rotation.x = Math.PI / 2;
+  // wooden gable boards with a carved sun and eave boards
+  if (!padGableGeo) {
+    const sh = new THREE.Shape();
+    sh.moveTo(0, 0);
+    sh.lineTo(1, 0);
+    sh.lineTo(0.5, 1);
+    sh.closePath();
+    padGableGeo = new THREE.ExtrudeGeometry(sh, { depth: 0.06, bevelEnabled: false });
+  }
+  [0.04, D - 0.1].forEach((z) => {
+    const gb = add(g, padGableGeo, wood2, 0, yE, z);
+    gb.scale.set(W, rise, 1);
+    Sph(g, 0.2, brassM, cx, yE + rise * 0.38, z + (z < 1 ? 0.0 : 0.06)).scale.set(1, 1, 0.25);
+    [-1, 1].forEach((s) => { const e = B(g, slope + 0.05, 0.12, 0.08, wood, cx + s * hw / 2, (yE + yR) / 2 + 0.02, z + 0.03); e.rotation.z = -s * ang; });
+  });
+  brassTop(g, cx, yR - 0.35, 0.3, 0.8);
+  // gate leaves
+  if (o.gate !== "none") {
+    const lw = o.span / 2 - 0.6, lh = 2.15;
+    const hingeX = [1.0 + 0.25, W - 1.0 - 0.25];
+    [-1, 1].forEach((s) => {
+      const pv = new THREE.Group();
+      pv.position.set(s < 0 ? 0.5 + 0.7 + 0.18 : W - 0.5 - 0.7 - 0.18, 0.23, D / 2);
+      pv.position.x = s < 0 ? hingeX[0] + 0.1 : hingeX[1] - 0.1;
+      g.add(pv);
+      const dir = s < 0 ? 1 : -1;
+      const wid = o.span / 2 - 0.25;
+      B(pv, wid, lh, 0.1, wood2, dir * wid / 2, lh / 2, 0);
+      for (let k = 1; k < 5; k++) B(pv, 0.02, lh, 0.11, wood, dir * (k / 5) * wid, lh / 2, 0);
+      [0.35, lh / 2, lh - 0.35].forEach((y) => B(pv, wid - 0.06, 0.07, 0.13, black, dir * wid / 2, y, 0));
+      Sph(pv, 0.05, brassM, dir * (wid - 0.15), lh * 0.5, 0.09);
+      Sph(pv, 0.04, brassM, dir * (wid - 0.15), lh * 0.5 + 0.2, 0.09);
+      if (o.gate === "open") pv.rotation.y = -dir * Math.asin(Math.min(1, (D / 2 - 0.12) / wid)) * 0.95;
+    });
+  }
+  // raised seats along the walls of the passage
+  if (o.bench) [-1, 1].forEach((s) => {
+    const x = s < 0 ? 0.7 + 0.3 : W - 0.7 - 0.3;
+    B(g, 0.6, 0.5, D - 1.0, mat("#A9A39A", { roughness: 0.9 }), x + (s < 0 ? 0.28 : -0.28) + 0.0, 0.45, D / 2);
+    B(g, 0.66, 0.08, D - 0.95, wood2, x + (s < 0 ? 0.28 : -0.28), 0.72, D / 2);
+  });
+  if (o.lamp) {
+    tube(g, [cx, yE - 0.28, D / 2], [cx, yE - 0.55, D / 2], 0.012, black);
+    Cyl(g, 0.14, 0.1, 0.3, glowMat(o, c), cx, yE - 0.72, D / 2);
+    Cone(g, 0.18, 0.12, 4, black, cx, yE - 0.5, D / 2).rotation.y = Math.PI / 4;
+    Cyl(g, 0.1, 0.12, 0.04, black, cx, yE - 0.9, D / 2);
+  }
+  return g;
+}, (o, c) => (o.lamp ? [{ kind: "point", pos: [0, 0.2 + 2.6 + 0.3 - 0.72, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 7 }] : []));
+
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
@@ -7469,7 +7581,7 @@ export const GROUPS = [
   { title: "Flowering plants", keys: ["rose", "tulips", "lavender", "daisies", "orchid", "hibiscus", "marigold", "lotus", "bougainvillea", "hangbasket", "flowergarden", "meadow", "planter"] },
   { title: "Plants and stones", keys: ["pot", "bush", "flowers", "sunflower", "cactus", "grass", "hedge", "stone", "boulder"] },
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
-  { title: "Arches and boundary walls", keys: ["xarch", "xwall", "xgatemain"] },
+  { title: "Arches and boundary walls", keys: ["xarch", "xwall", "xgatemain", "xpadippura"] },
   { title: "Old temple", keys: ["xshrine", "xgopuram", "xmandapa", "xdeepastambha", "xdhwaja", "xtemplebell", "xtemplepond"] },
   { title: "Ponds and fountains", keys: ["xpond", "xfountain"] },
   { title: "Mini theater", keys: ["xstage", "xtheaterseats", "xcinemascreen", "xprojector", "xmarquee", "xticketbooth", "xpopcorn", "xtheatermasks"] },
