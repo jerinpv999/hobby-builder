@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { getThumb, peekThumb } from "./thumbs";
 import { MOTIONS, AXES, cleanAnim, newAnim, applyPieceAnims, resetPieceAnims, spinFans, pathPoints } from "./pieceAnimations";
+import { exportObjZip } from "./objExport";
 import { planAnimation, playPreview, recordGif, recordVideo, downloadBlob } from "./animation";
 import { PRESET_VIEWS, PHOTO_SIZES, takePhotos, contactSheet, canvasToBlob } from "./photo";
 import { MIN_N, MAX_N, serializeStructure, parseStructure, loadSaved, autosave } from "./structureIO";
@@ -12,7 +13,7 @@ const DEFAULT_N = 20; // starting baseplate: N x N studs
 const STEP = 4; // each expand/shrink adds or removes this many studs per side
 
 const COLORS = [
- { name: "Red", hex: "#D01012" },
+  { name: "Red", hex: "#D01012" },
   { name: "Blue", hex: "#0055BF" },
   { name: "Yellow", hex: "#F2CD37" },
   { name: "Green", hex: "#237841" },
@@ -20,33 +21,6 @@ const COLORS = [
   { name: "Lime", hex: "#A6CA55" },
   { name: "White", hex: "#F4F4F4" },
   { name: "Black", hex: "#1B2A34" },
-  { name: "Dark Red", hex: "#72000F" },
-  { name: "Bright Light Blue", hex: "#6CB4EE" },
-  { name: "Dark Blue", hex: "#0A2940" },
-  { name: "Bright Light Yellow", hex: "#FFF289" },
-  { name: "Dark Green", hex: "#184923" },
-  { name: "Dark Orange", hex: "#A83C00" },
-  { name: "Dark Turquoise", hex: "#008B8B" },
-  { name: "Light Bluish Gray", hex: "#A3A3A3" },
-  { name: "Dark Bluish Gray", hex: "#4C5656" },
-  { name: "Sand Green", hex: "#7F9684" },
-  { name: "Sand Blue", hex: "#5C768D" },
-  { name: "Dark Tan", hex: "#8E764E" },
-  { name: "Tan", hex: "#D9C2A3" },
-  { name: "Medium Lavender", hex: "#9370DB" },
-  { name: "Lavender", hex: "#E6E6FA" },
-  { name: "Magenta", hex: "#9B2D55" },
-  { name: "Bright Pink", hex: "#FF69B4" },
-  { name: "Coral", hex: "#FF6F59" },
-  { name: "Nougat", hex: "#D08B5B" },
-  { name: "Medium Nougat", hex: "#AA7D55" },
-  { name: "Transparent Clear", hex: "#F5F5F5" },
-  { name: "Transparent Red", hex: "#E53935" },
-  { name: "Transparent Blue", hex: "#1E88E5" },
-  { name: "Transparent Green", hex: "#43A047" },
-  { name: "Transparent Yellow", hex: "#FDD835" },
-  { name: "Gold", hex: "#D4AF37" },
-  { name: "Silver", hex: "#C0C0C0" }
 ];
 
 const groupOf = {};
@@ -1280,6 +1254,13 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     URL.revokeObjectURL(url);
     setNote(`Saved ${bricks.length} piece${bricks.length === 1 ? "" : "s"} and your animation setup to hobby-structure.json`);
   };
+  const saveObj = () => {
+    const tc = three.current;
+    if (!tc || !bricks.length) { setNote("Place some pieces first, then export"); return; }
+    const out = exportObjZip(tc.brickGroup, "hobby-structure");
+    downloadBlob(out.blob, "hobby-structure-obj.zip");
+    setNote(`Exported ${bricks.length} piece${bricks.length === 1 ? "" : "s"} as a 3D model: hobby-structure-obj.zip holds the .obj and .mtl (colours). Open it in Blender, Windows 3D Viewer or any online OBJ viewer.`);
+  };
   const loadJson = async (e) => {
     const file = e.target.files[0];
     e.target.value = ""; // lets the same file be chosen again
@@ -2292,6 +2273,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
 
         <div className="grp">
           <button className="btn" onClick={saveJson} title="Download your build as a JSON file (Ctrl+S)">Save</button>
+          <button className="btn" onClick={saveObj} title="Download a 3D model (.obj + .mtl in a zip) to show others in Blender or an online viewer">Export OBJ</button>
           <button className="btn" onClick={() => fileRef.current.click()} title="Open a saved JSON file (Ctrl+O)">Load</button>
           <input ref={fileRef} type="file" accept=".json,application/json" onChange={loadJson} style={{ display: "none" }} />
         </div>
