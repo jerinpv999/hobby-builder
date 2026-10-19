@@ -13,7 +13,7 @@ const DEFAULT_N = 20; // starting baseplate: N x N studs
 const STEP = 4; // each expand/shrink adds or removes this many studs per side
 
 const COLORS = [
-  { name: "Red", hex: "#D01012" },
+ { name: "Red", hex: "#D01012" },
   { name: "Blue", hex: "#0055BF" },
   { name: "Yellow", hex: "#F2CD37" },
   { name: "Green", hex: "#237841" },
@@ -21,6 +21,33 @@ const COLORS = [
   { name: "Lime", hex: "#A6CA55" },
   { name: "White", hex: "#F4F4F4" },
   { name: "Black", hex: "#1B2A34" },
+  { name: "Dark Red", hex: "#72000F" },
+  { name: "Bright Light Blue", hex: "#6CB4EE" },
+  { name: "Dark Blue", hex: "#0A2940" },
+  { name: "Bright Light Yellow", hex: "#FFF289" },
+  { name: "Dark Green", hex: "#184923" },
+  { name: "Dark Orange", hex: "#A83C00" },
+  { name: "Dark Turquoise", hex: "#008B8B" },
+  { name: "Light Bluish Gray", hex: "#A3A3A3" },
+  { name: "Dark Bluish Gray", hex: "#4C5656" },
+  { name: "Sand Green", hex: "#7F9684" },
+  { name: "Sand Blue", hex: "#5C768D" },
+  { name: "Dark Tan", hex: "#8E764E" },
+  { name: "Tan", hex: "#D9C2A3" },
+  { name: "Medium Lavender", hex: "#9370DB" },
+  { name: "Lavender", hex: "#E6E6FA" },
+  { name: "Magenta", hex: "#9B2D55" },
+  { name: "Bright Pink", hex: "#FF69B4" },
+  { name: "Coral", hex: "#FF6F59" },
+  { name: "Nougat", hex: "#D08B5B" },
+  { name: "Medium Nougat", hex: "#AA7D55" },
+  { name: "Transparent Clear", hex: "#F5F5F5" },
+  { name: "Transparent Red", hex: "#E53935" },
+  { name: "Transparent Blue", hex: "#1E88E5" },
+  { name: "Transparent Green", hex: "#43A047" },
+  { name: "Transparent Yellow", hex: "#FDD835" },
+  { name: "Gold", hex: "#D4AF37" },
+  { name: "Silver", hex: "#C0C0C0" }
 ];
 
 const groupOf = {};
