@@ -20,33 +20,6 @@ const COLORS = [
   { name: "Lime", hex: "#A6CA55" },
   { name: "White", hex: "#F4F4F4" },
   { name: "Black", hex: "#1B2A34" },
-  { name: "Dark Red", hex: "#72000F" },
-  { name: "Bright Light Blue", hex: "#6CB4EE" },
-  { name: "Dark Blue", hex: "#0A2940" },
-  { name: "Bright Light Yellow", hex: "#FFF289" },
-  { name: "Dark Green", hex: "#184923" },
-  { name: "Dark Orange", hex: "#A83C00" },
-  { name: "Dark Turquoise", hex: "#008B8B" },
-  { name: "Light Bluish Gray", hex: "#A3A3A3" },
-  { name: "Dark Bluish Gray", hex: "#4C5656" },
-  { name: "Sand Green", hex: "#7F9684" },
-  { name: "Sand Blue", hex: "#5C768D" },
-  { name: "Dark Tan", hex: "#8E764E" },
-  { name: "Tan", hex: "#D9C2A3" },
-  { name: "Medium Lavender", hex: "#9370DB" },
-  { name: "Lavender", hex: "#E6E6FA" },
-  { name: "Magenta", hex: "#9B2D55" },
-  { name: "Bright Pink", hex: "#FF69B4" },
-  { name: "Coral", hex: "#FF6F59" },
-  { name: "Nougat", hex: "#D08B5B" },
-  { name: "Medium Nougat", hex: "#AA7D55" },
-  { name: "Transparent Clear", hex: "#F5F5F5" },
-  { name: "Transparent Red", hex: "#E53935" },
-  { name: "Transparent Blue", hex: "#1E88E5" },
-  { name: "Transparent Green", hex: "#43A047" },
-  { name: "Transparent Yellow", hex: "#FDD835" },
-  { name: "Gold", hex: "#D4AF37" },
-  { name: "Silver", hex: "#C0C0C0" }
 ];
 
 const groupOf = {};
@@ -105,6 +78,14 @@ const CSS = `
 .status{position:absolute;left:12px;right:12px;bottom:12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 12px;border-radius:10px;background:rgba(20,33,61,.92);pointer-events:none}
 .status .dot{width:14px;height:14px;border-radius:50%;border:2px solid #fff}
 .status .hint{margin-left:auto;color:#A9B8D4}
+.wpanel{position:absolute;z-index:3;top:12px;right:12px;width:268px;padding:10px 12px;border-radius:12px;background:rgba(20,33,61,.96);border:1px solid #33466b;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.wpanel .seg{display:flex;gap:4px;margin:6px 0 4px}
+.wpanel .seg button{flex:1}
+.wpanel .keys{margin:8px 0 0;padding:0;list-style:none;font-size:12px;color:#A9B8D4;line-height:1.6}
+.wpanel .keys b{color:#E8EEF8}
+.wpanel .chk{display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0}
+.wpanel .nudge{display:flex;gap:4px;margin-top:4px}
+.wpanel .nudge button{flex:1}
 .drawer{position:absolute;top:12px;right:12px;width:290px;max-height:calc(100% - 90px);overflow-y:auto;padding:12px;border-radius:12px;background:#14213D;border:1px solid #33466b;box-shadow:0 8px 24px rgba(0,0,0,.35)}
 .row{display:flex;gap:8px;margin-bottom:10px}
 .row .btn{flex:1}
@@ -207,7 +188,7 @@ const SHORTCUTS = [
   ["Camera", [
     ["1 2 3 4", "Front, Side, Top, Iso view"], ["0", "Reset the view"], ["5", "Fit every piece on screen"], ["Arrow keys", "Rotate and tilt (Shift = bigger steps)"],
     ["Z / Shift+Z", "Zoom in / out"], ["F", "Walk mode on / off"], ["W A S D", "Walk (in walk mode)"],
-    ["Q / E", "Down / up (in walk mode)"], ["← →", "Turn (in walk mode)"], ["Shift", "Move faster (in walk mode)"],
+    ["Space / E", "Jump (Walk) or fly up (Fly), in walk mode"], ["Q", "Crouch (Walk) or fly down (Fly)"], ["G", "Switch between Walk and Fly (in walk mode)"], ["Home", "Level the view (in walk mode)"], ["← →", "Turn (in walk mode)"], ["Shift", "Move faster (in walk mode)"],
   ]],
   ["Look at a selection", [
     ["Objects list: click a kind", "Selects all of it and points the camera at it"], ["Shift+F", "Point the camera at the selected pieces"], ["Focus button", "Same, in the selection card"],
@@ -305,6 +286,8 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
   const [camMode, setCamMode] = useState(init?.setup?.camMode || "orbit"); // camera: "orbit", "angles" or "tour"
   const [shots, setShots] = useState(init?.setup?.shots || []); // saved camera angles: { theta, phi, radius }
   const [walkMode, setWalkMode] = useState(false); // first-person camera
+  const [wopts, setWopts] = useState({ fly: false, noclip: false, eye: 2.2, speed: 1, look: 1, fov: 65 }); // walk panel settings
+  const [wpOpen, setWpOpen] = useState(true);
   const [stops, setStops] = useState(init?.setup?.stops || []); // home tour stops: { x, y, z, yaw, pitch }
   const [stopSecs, setStopSecs] = useState(init?.setup?.stopSecs || 3); // seconds between tour stops
   const [busy, setBusy] = useState(""); // "" | "gif" | "video" | "preview"
@@ -405,12 +388,177 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     updateCamera();
 
     /* first-person walk camera for home tours. yaw 0 looks toward -z; positive yaw turns right. */
-    const walk = { active: false, started: false, pos: new THREE.Vector3(0, 2.4, 14), yaw: 0, pitch: 0, keys: new Set(), last: performance.now() };
+    const walk = {
+      active: false, started: false, pos: new THREE.Vector3(0, 2.4, 14), yaw: 0, pitch: 0, keys: new Set(), last: performance.now(),
+      // settings from the walk panel
+      fly: false, noclip: false, eye: 2.2, speed: 1, look: 1, fov: 65,
+      // physics: pos is the eye; the feet are pos.y minus eyeNow
+      eyeNow: 2.2, vy: 0, grounded: false, crouch: 0, lift: 0, push: 0, gridDirty: true,
+    };
     const forwardOf = (yaw, pitch) =>
       new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
     const applyWalk = () => {
-      camera.position.copy(walk.pos);
-      camera.lookAt(walk.pos.clone().add(forwardOf(walk.yaw, walk.pitch)));
+      // lift is a short smoothing offset so stepping up or down a stair glides instead of popping
+      camera.position.set(walk.pos.x, walk.pos.y + walk.lift, walk.pos.z);
+      camera.lookAt(camera.position.clone().add(forwardOf(walk.yaw, walk.pitch)));
+    };
+
+    /* ----- walking physics: gravity, solid walls, steps, jumping ----- */
+    const STEP = 1.3; // the tallest ledge you walk straight up (one brick layer, so stairs work)
+    const RAD = 0.35; // body radius
+    const GRAV = 22;
+    const JUMP = 9;
+    const THIN_OK = /^(door|gate)/; // doors and gates open as you walk through them
+    let grid = null;
+    const buildGrid = () => {
+      brickGroup.updateMatrixWorld(true);
+      const CELL = 2;
+      const boxes = [];
+      const cells = new Map();
+      const bb = new THREE.Box3();
+      const visit = (o, passThin) => {
+        if (!o.visible) return;
+        if (o.isMesh && o.geometry && !o.userData.noWalk) {
+          if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+          bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+          const sx = bb.max.x - bb.min.x, sy = bb.max.y - bb.min.y, sz = bb.max.z - bb.min.z;
+          const tiny = sx < 0.4 && sy < 0.4 && sz < 0.4; // studs and small decorations
+          const thin = passThin && Math.min(sx, sz) < 0.6; // door and gate frames and leaves: you just walk through
+          if (!tiny && !thin && sy > 0.05) boxes.push([bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z]);
+        }
+        for (const c of o.children) visit(c, passThin);
+      };
+      brickGroup.children.forEach((hd) => visit(hd, THIN_OK.test(hd.userData.type || "")));
+      boxes.forEach((b, i) => {
+        for (let cx = Math.floor(b[0] / CELL); cx <= Math.floor(b[3] / CELL); cx++)
+          for (let cz = Math.floor(b[2] / CELL); cz <= Math.floor(b[5] / CELL); cz++) {
+            const key = cx * 100003 + cz;
+            const l = cells.get(key);
+            if (l) l.push(i); else cells.set(key, [i]);
+          }
+      });
+      grid = { boxes, cells, CELL, stamp: new Int32Array(boxes.length), n: 0 };
+      walk.gridDirty = false;
+    };
+    // calls fn(box) for every box whose footprint touches the circle at (x, z)
+    const near = (x, z, fn) => {
+      const { cells, CELL, boxes, stamp } = grid;
+      const n = ++grid.n;
+      for (let cx = Math.floor((x - RAD) / CELL); cx <= Math.floor((x + RAD) / CELL); cx++)
+        for (let cz = Math.floor((z - RAD) / CELL); cz <= Math.floor((z + RAD) / CELL); cz++) {
+          const l = cells.get(cx * 100003 + cz);
+          if (!l) continue;
+          for (const i of l) {
+            if (stamp[i] === n) continue;
+            stamp[i] = n;
+            const b = boxes[i];
+            const dx = Math.max(b[0] - x, 0, x - b[3]), dz = Math.max(b[2] - z, 0, z - b[5]);
+            if (dx * dx + dz * dz < RAD * RAD) fn(b);
+          }
+        }
+    };
+    const floorAt = (x, z, limit) => {
+      let best = 0; // the ground
+      near(x, z, (b) => { if (b[4] <= limit && b[4] > best) best = b[4]; });
+      return best;
+    };
+    const ceilAt = (x, z, from) => {
+      let best = Infinity;
+      near(x, z, (b) => { if (b[1] >= from - 0.02 && b[1] < best) best = b[1]; });
+      return best;
+    };
+    const blockedAt = (x, z, feet, head) => {
+      let hit = false;
+      near(x, z, (b) => { if (b[1] < head - 0.02 && b[4] > feet + STEP + 0.001) hit = true; });
+      return hit;
+    };
+    const stepWalk = (dt) => {
+      const k = walk.keys;
+      const f = forwardOf(walk.yaw, 0);
+      const rt = new THREE.Vector3(-f.z, 0, f.x);
+      const dir = new THREE.Vector3();
+      if (k.has("w") || k.has("arrowup")) dir.add(f);
+      if (k.has("s") || k.has("arrowdown")) dir.sub(f);
+      if (k.has("d")) dir.add(rt);
+      if (k.has("a")) dir.sub(rt);
+      if (dir.lengthSq() > 1) dir.normalize();
+      const speed = 6 * walk.speed * (k.has("shift") ? 2.3 : 1);
+      if (k.has("arrowright")) walk.yaw += 1.6 * walk.look * dt;
+      if (k.has("arrowleft")) walk.yaw -= 1.6 * walk.look * dt;
+      const push = walk.push;
+      walk.push = 0;
+      const lim = live.current.N / 2 + 12;
+      const wantCrouch = !walk.fly && k.has("q") ? 1 : 0;
+      walk.crouch += (wantCrouch - walk.crouch) * Math.min(1, dt * 12);
+      const eyeCur = walk.eye * (1 - 0.45 * walk.crouch);
+      let feet = walk.pos.y - walk.eyeNow;
+      walk.eyeNow = eyeCur;
+      if (walk.fly) {
+        // free flight: through everything
+        walk.pos.addScaledVector(dir, speed * dt);
+        walk.pos.addScaledVector(f, push);
+        walk.pos.y += ((k.has("e") ? 1 : 0) - (k.has("q") ? 1 : 0)) * speed * 0.7 * dt;
+        walk.pos.x = Math.max(-lim, Math.min(lim, walk.pos.x));
+        walk.pos.z = Math.max(-lim, Math.min(lim, walk.pos.z));
+        walk.pos.y = Math.min(60, Math.max(0.6, walk.pos.y));
+        walk.vy = 0;
+        walk.grounded = false;
+      } else {
+        if (walk.gridDirty || !grid) buildGrid();
+        const H = eyeCur + 0.25;
+        let x = walk.pos.x, z = walk.pos.z;
+        const stuck = walk.noclip || blockedAt(x, z, feet, feet + H); // if a piece landed on you, you can walk out of it
+        const n = Math.min(6, Math.max(1, Math.ceil(dt * 60)));
+        const sdt = dt / n;
+        const mx = dir.x * speed * dt + f.x * push, mz = dir.z * speed * dt + f.z * push;
+        for (let i = 0; i < n; i++) {
+          const tryMove = (nx, nz) => {
+            nx = Math.max(-lim, Math.min(lim, nx));
+            nz = Math.max(-lim, Math.min(lim, nz));
+            const up = Math.max(feet, floorAt(nx, nz, feet + STEP)); // ledges up to a step high are walked onto
+            if (!stuck && blockedAt(nx, nz, up, up + H)) return false;
+            x = nx;
+            z = nz;
+            return true;
+          };
+          const dx = mx / n, dz = mz / n;
+          if (dx || dz) {
+            if (!tryMove(x + dx, z + dz)) {
+              if (!tryMove(x + dx, z)) tryMove(x, z + dz); // slide along walls
+            }
+          }
+          const fl = floorAt(x, z, feet + STEP);
+          if (walk.grounded) {
+            if (k.has(" ") || k.has("e")) {
+              walk.vy = JUMP;
+              walk.grounded = false;
+            } else if (feet - fl <= STEP + 0.01) {
+              const d = fl - feet;
+              if (Math.abs(d) > 0.04) walk.lift = Math.max(-1.4, Math.min(1.4, walk.lift - d)); // glide over stairs
+              feet = fl;
+            } else walk.grounded = false;
+          }
+          if (!walk.grounded) {
+            walk.vy = Math.max(-32, walk.vy - GRAV * sdt);
+            let nf = feet + walk.vy * sdt;
+            if (walk.vy > 0) {
+              const c = ceilAt(x, z, feet + H);
+              if (nf + H > c) {
+                nf = c - H;
+                walk.vy = 0;
+              }
+            } else if (nf <= fl) {
+              nf = fl;
+              walk.vy = 0;
+              walk.grounded = true;
+            }
+            feet = nf;
+          }
+        }
+        walk.pos.set(x, feet + eyeCur, z);
+      }
+      walk.lift *= Math.exp(-dt * 10);
+      if (Math.abs(walk.lift) < 0.003) walk.lift = 0;
     };
 
     const resize = () => {
@@ -528,8 +676,8 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
           } else if (down.pan && !walk.active) {
             panBy((-(e.clientX - down.lx) * orbit.radius * 0.0016), ((e.clientY - down.ly) * orbit.radius * 0.0016)); // right-drag slides the view over the plate
           } else if (walk.active) {
-            walk.yaw -= (e.clientX - down.lx) * 0.004; // drag like Street View: the scene follows your pointer
-            walk.pitch = Math.min(1.3, Math.max(-1.3, walk.pitch + (e.clientY - down.ly) * 0.004));
+            walk.yaw -= (e.clientX - down.lx) * 0.004 * walk.look; // drag like Street View: the scene follows your pointer
+            walk.pitch = Math.min(1.45, Math.max(-1.45, walk.pitch + (e.clientY - down.ly) * 0.004 * walk.look));
             applyWalk();
           } else {
             orbit.theta -= (e.clientX - down.lx) * 0.008;
@@ -629,8 +777,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     const onWheel = (e) => {
       e.preventDefault();
       if (walk.active) {
-        walk.pos.addScaledVector(forwardOf(walk.yaw, 0), -e.deltaY * 0.01);
-        applyWalk();
+        walk.push += -e.deltaY * 0.01 * walk.speed; // the loop moves you, so walls still stop you
         return;
       }
       orbit.radius = Math.min(40 + live.current.N * 1.5, Math.max(4, orbit.radius + e.deltaY * 0.02));
@@ -650,19 +797,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       const dt = Math.min(0.1, (now - walk.last) / 1000);
       walk.last = now;
       if (walk.active && !three.current.recording) {
-        const k = walk.keys;
-        const step = (k.has("shift") ? 14 : 6) * dt;
-        const f = forwardOf(walk.yaw, 0);
-        const right = new THREE.Vector3(-f.z, 0, f.x);
-        if (k.has("w") || k.has("arrowup")) walk.pos.addScaledVector(f, step);
-        if (k.has("s") || k.has("arrowdown")) walk.pos.addScaledVector(f, -step);
-        if (k.has("d")) walk.pos.addScaledVector(right, step);
-        if (k.has("a")) walk.pos.addScaledVector(right, -step);
-        if (k.has("e")) walk.pos.y += step;
-        if (k.has("q")) walk.pos.y -= step;
-        if (k.has("arrowright")) walk.yaw += 1.6 * dt;
-        if (k.has("arrowleft")) walk.yaw -= 1.6 * dt;
-        walk.pos.y = Math.min(40, Math.max(0.6, walk.pos.y));
+        stepWalk(dt);
         applyWalk();
       }
       if (!three.current.recording) {
@@ -712,7 +847,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
 
   /* keyboard shortcuts (the list is also shown in the help window) */
   useEffect(() => {
-    const MOVE = ["w", "a", "s", "d", "q", "e", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright"];
+    const MOVE = ["w", "a", "s", "d", "q", "e", " ", "shift", "arrowup", "arrowdown", "arrowleft", "arrowright"];
     const onKeyDown = (e) => {
       const t = three.current;
       const A = actions.current;
@@ -724,9 +859,13 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       const mod = e.ctrlKey || e.metaKey;
       if (A.busy && k !== "escape" && k !== "?" && !(k === "h" && !mod)) return; // exporting: only Esc and help
       if (t.walk && t.walk.active && !mod && MOVE.includes(k)) {
-        if (k.startsWith("arrow")) e.preventDefault();
+        if (k.startsWith("arrow") || k === " ") e.preventDefault();
         t.walk.keys.add(k);
         return;
+      }
+      if (t.walk && t.walk.active && !mod && !e.altKey && (k === "g" || k === "home")) {
+        e.preventDefault();
+        return k === "g" ? A.walkFly() : A.levelView();
       }
       if (mod && k.startsWith("arrow") && !e.shiftKey) {
         e.preventDefault();
@@ -832,7 +971,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       holder.position.copy(base);
       g.position.set(-b.w / 2, 0, -b.d / 2);
       holder.add(g);
-      holder.userData = { pid: b.id, baseY: b.y * BH, base, rot: b.rot, h: b.h, anim: b.anim || null };
+      holder.userData = { pid: b.id, baseY: b.y * BH, base, rot: b.rot, h: b.h, anim: b.anim || null, type: b.type };
       holder.userData.cut = cut != null && b.y >= cut; // cut away the roof and upper floors to work inside
       holder.visible = !holder.userData.cut;
       brickGroup.add(holder);
@@ -841,6 +980,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     const spinners = [];
     brickGroup.children.forEach((hd) => hd.traverse((o) => o.userData.spin && spinners.push(o)));
     brickGroup.userData.spinners = spinners;
+    if (three.current.walk) three.current.walk.gridDirty = true; // walking collisions follow the pieces
     // every lamp glows: a halo for each, plus a pool of real lights that follows the lamps nearest to you
     const t = three.current;
     const lg = t.lightGroup;
@@ -1086,6 +1226,22 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     Object.assign(t.orbit, v);
     t.updateCamera();
   };
+  /* walk panel settings reach the walking camera */
+  useEffect(() => {
+    const t = three.current;
+    if (!t.walk) return;
+    Object.assign(t.walk, wopts);
+    if (t.walk.active) {
+      t.camera.fov = wopts.fov;
+      t.camera.updateProjectionMatrix();
+    }
+  }, [wopts]);
+  const setW = (patch) => setWopts((o) => ({ ...o, ...patch }));
+  const lookBy = (deg) => {
+    const t = three.current;
+    t.walk.pitch = Math.min(1.45, Math.max(-1.45, deg === 0 ? 0 : t.walk.pitch + (deg * Math.PI) / 180));
+    t.applyWalk();
+  };
   /* walk mode and home tour stops */
   const toggleWalk = () => {
     const t = three.current;
@@ -1093,13 +1249,19 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       const w = t.walk;
       if (!w.started) {
         // first time: stand at the current camera spot at eye height, facing the middle of the plate
-        w.pos.set(t.camera.position.x, 2.4, t.camera.position.z);
+        const lim = live.current.N / 2;
+        w.pos.set(Math.max(-lim, Math.min(lim, t.camera.position.x)), w.eye + 2, Math.max(-lim, Math.min(lim, t.camera.position.z)));
+        w.eyeNow = w.eye;
         w.yaw = Math.atan2(-w.pos.x, w.pos.z);
         w.pitch = -0.05;
         w.started = true;
       }
       w.active = true;
-      t.camera.fov = 65;
+      w.vy = 0;
+      w.grounded = false;
+      w.lift = 0;
+      w.gridDirty = true;
+      t.camera.fov = w.fov;
       t.camera.updateProjectionMatrix();
       t.applyWalk();
       if (t.ghost) t.ghost.visible = false;
@@ -1167,6 +1329,8 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
     const t = three.current;
     if (!t.walk.active) toggleWalk();
     t.walk.pos.set(st.x, st.y, st.z);
+    t.walk.eyeNow = t.walk.eye;
+    t.walk.vy = 0;
     t.walk.yaw = st.yaw;
     t.walk.pitch = st.pitch;
     t.applyWalk();
@@ -1603,6 +1767,8 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       t.updateCamera();
     },
     walk: toggleWalk,
+    walkFly: () => setWopts((o) => ({ ...o, fly: !o.fly })),
+    levelView: () => lookBy(0),
     plate: (dir) => resizePlate(dir * STEP),
     toggleAnim: () => {
       setPhotoOpen(false);
@@ -1925,7 +2091,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
           <span>{cut == null ? "all" : cut}</span>
         </label>
 
-        <button className={on(walkMode).trim()} onClick={toggleWalk} title="Walk through your build like a home tour (F): W A S D to move, drag to look">Walk</button>
+        <button className={on(walkMode).trim()} onClick={toggleWalk} title="Walk through your build (F): walk up stairs, jump, go upstairs, or switch to Fly (G)">Walk</button>
 
         <div className="grp">
           <span className="lbl">Baseplate</span>
@@ -2019,8 +2185,8 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
           <div className="status">
             {walkMode ? (
               <>
-                <strong>Walk mode</strong>
-                <span>W A S D move · Q / E down / up · drag to look · click to place · R turns the piece</span>
+                <strong>{wopts.fly ? "Fly mode" : "Walk mode"}</strong>
+                <span>{wopts.fly ? "W A S D move · E up · Q down" : "W A S D move · Space jump · Q crouch · walk up stairs and ledges"} · drag to look · click to place</span>
               </>
             ) : mode === "build" ? (
               <>
@@ -2036,9 +2202,61 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
             <span>{bricks.length} piece{bricks.length === 1 ? "" : "s"}</span>
             {bricks.some((b) => b.anim) && <span>{bricks.filter((b) => b.anim).length} with motion</span>}
             <span className="hint">
-              {walkMode ? "Click to place what you point at · Open Animate to save a stop in each room" : "Click or Space to place · Drag to orbit · Right-drag to pan · R rotate · ? all shortcuts"}
+              {walkMode ? "G switches Walk and Fly · Open Animate to save a stop in each room" : "Click or Space to place · Drag to orbit · Right-drag to pan · R rotate · ? all shortcuts"}
             </span>
           </div>
+
+          {walkMode && (
+            <div className="wpanel" role="group" aria-label="Walk settings">
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+                <strong>Walk settings</strong>
+                <button className="btn sm" style={{ width: 34, flex: "none" }} onClick={() => setWpOpen((o) => !o)} aria-expanded={wpOpen} aria-label={wpOpen ? "Hide walk settings" : "Show walk settings"}>{wpOpen ? "−" : "+"}</button>
+              </div>
+              {wpOpen && (
+                <>
+                  <div className="seg" role="group" aria-label="Movement">
+                    <button className={"btn sm" + (!wopts.fly ? " on" : "")} onClick={() => setW({ fly: false })} title="Gravity, solid walls, steps and jumping (G)">Walk</button>
+                    <button className={"btn sm" + (wopts.fly ? " on" : "")} onClick={() => setW({ fly: true })} title="Float anywhere, through everything (G)">Fly</button>
+                  </div>
+                  {!wopts.fly && (
+                    <label className="chk" title="Walk straight through walls and pieces (you still stand on floors)">
+                      <input type="checkbox" checked={wopts.noclip} onChange={(e) => setW({ noclip: e.target.checked })} /> Walk through walls
+                    </label>
+                  )}
+                  <label className="prm" title="How wide the view is">
+                    <span>Field of view</span>
+                    <input type="range" min={40} max={100} step={1} value={wopts.fov} onChange={(e) => setW({ fov: Number(e.target.value) })} />
+                    <span>{wopts.fov}°</span>
+                  </label>
+                  <label className="prm" title="How tall you stand. Lower it to fit under low roofs">
+                    <span>Eye height</span>
+                    <input type="range" min={1} max={4} step={0.1} value={wopts.eye} onChange={(e) => setW({ eye: Number(e.target.value) })} />
+                    <span>{wopts.eye.toFixed(1)}</span>
+                  </label>
+                  <label className="prm">
+                    <span>Move speed</span>
+                    <input type="range" min={0.5} max={3} step={0.1} value={wopts.speed} onChange={(e) => setW({ speed: Number(e.target.value) })} />
+                    <span>{wopts.speed.toFixed(1)}×</span>
+                  </label>
+                  <label className="prm" title="How fast dragging and the arrow keys turn the view">
+                    <span>Look speed</span>
+                    <input type="range" min={0.4} max={2.5} step={0.1} value={wopts.look} onChange={(e) => setW({ look: Number(e.target.value) })} />
+                    <span>{wopts.look.toFixed(1)}×</span>
+                  </label>
+                  <div className="nudge" role="group" aria-label="Look up or down">
+                    <button className="btn sm" onClick={() => lookBy(12)} aria-label="Look up">⬆ Up</button>
+                    <button className="btn sm" onClick={() => lookBy(0)} title="Level the view (Home)">Level</button>
+                    <button className="btn sm" onClick={() => lookBy(-12)} aria-label="Look down">⬇ Down</button>
+                  </div>
+                  <ul className="keys">
+                    <li><b>W A S D</b> move · <b>Shift</b> run · <b>drag</b> look</li>
+                    <li>{wopts.fly ? <><b>E</b> up · <b>Q</b> down</> : <><b>Space</b> jump · <b>Q</b> crouch (fits low doors)</>}</li>
+                    <li><b>G</b> Walk / Fly · <b>Home</b> level view · <b>Esc</b> leave</li>
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
 
           {mode === "build" && (
             <div className="custom" role="group" aria-label={"Settings for " + type.name}>

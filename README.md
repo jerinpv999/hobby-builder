@@ -98,7 +98,7 @@ On Node 20.19 or newer you can use `npm create vite@latest` instead.
 | Remove a piece | Switch to **Remove** mode and click it. Anything above it drops down |
 | Undo or redo | **Undo** and **Redo** step back and forward through every change, up to 100 steps |
 | Clear | Removes everything (asks first). You can undo it |
-| Walk through the build | Press **Walk**. Use **W A S D** to move, **Q / E** to go down or up, **← →** to turn, drag to look, scroll to step forward or back, and hold **Shift** to move faster. Placing pieces is switched off while you walk; press Walk again to return to the orbit view |
+| Walk through the build | Press **Walk** (F). You walk like a person: gravity, solid walls, and you step straight up stairs and ledges one layer high. **W A S D** move, **Shift** runs, **Space** jumps, **Q** crouches (to fit low doors), drag to look, scroll to step. **G** switches to **Fly** (free 3D: **E** up, **Q** down, through everything). The **Walk settings** panel sets field of view, eye height, move speed, look speed, look up/down/level, and **Walk through walls**. |
 | Resize the baseplate | **Expand** or **Shrink** (4 studs per side per click). Existing pieces stay centered, and Shrink is disabled if it would cut off a piece |
 
 Pieces face the front by default (the drawers, doors and seat opening toward the front of the baseplate). Use R to turn them.
@@ -125,7 +125,9 @@ Press **?** or **H** (or the **Keys** button) to see this list in the app. On a 
 | | **Arrow keys** | Rotate and tilt (hold **Shift** for bigger steps) |
 | | **Z** / **Shift+Z** | Zoom in / out |
 | | **F** | Walk mode on / off |
-| | **W A S D**, **Q / E**, **← →**, **Shift** | Walk, down / up, turn, faster (walk mode only) |
+| | **W A S D**, **← →**, **Shift** | Walk, turn, run (walk mode only) |
+| | **Space** / **E**, **Q** | Jump and crouch (Walk) or up and down (Fly) |
+| | **G**, **Home** | Switch Walk / Fly, level the view (walk mode only) |
 | Baseplate and files | **+** or **=** / **-** or **_** | Expand / shrink the baseplate |
 | | **Ctrl+S** / **Ctrl+O** | Save JSON / Load JSON |
 | Animation | **M** | Open / close the Animate panel |
@@ -256,9 +258,18 @@ The animation setup is saved too, in an optional `animation` block: build-up or 
 
 The recorded GIF or video itself is downloaded as a file when you export it.
 
+## Walking in 3D
+
+Walk mode is now a proper first-person mode, not just a camera on the ground.
+
+- **Walk** (default): gravity, solid walls and floors, and automatic stepping. You walk up stairs and onto ledges up to one brick layer high, up to upper floors and onto roofs, and glide over each step. **Space** (or **E**) jumps, which with a step lets you climb about three layers. **Q** crouches so you fit under low doors. Doors and gates open as you walk through them. You slide along walls instead of sticking.
+- **Fly** (press **G**): float anywhere, **E** up and **Q** down, through everything. Press **G** again to drop back to walking.
+- **Walk settings** panel (top right, collapsible): **Walk / Fly**, **Walk through walls**, **Field of view** (40 to 100 degrees), **Eye height** (1 to 4, lower it for low rooms), **Move speed**, **Look speed**, and **Up / Level / Down** buttons for the view angle (**Home** levels it).
+- **Show layers** still works, so you can cut away the roof and walk upstairs inside.
+
 ## Placing pieces while you walk
 
-Walk mode (**F**) now places pieces too, so you can furnish a room from the inside. Choose a piece, look at where you want it and click (or press Space). In walk mode:
+Walk mode (**F**) now places pieces too, so you can furnish a room from the inside. Choose a piece, look at where you want it and click (Space now jumps in walk mode, so use **Enter** or click to place). In walk mode:
 
 - the piece sticks to whatever you point at: the floor or a table top, the side of a wall (front facing into the room), or the underside of a roof or shelf (for hanging lamps);
 - a piece placed on the bare baseplate rests on the floor level, never on the roof above you;
@@ -316,6 +327,8 @@ The app can now sign people in and keep each person's builds in the cloud, in **
 5. `npm test` in `server/` runs the API tests.
 
 **The API** (all under `/api`, JSON): `POST auth/register`, `POST auth/login`, `POST auth/logout`, `GET auth/me`, `GET workspaces`, `POST workspaces`, `GET/PUT/DELETE workspaces/:id`, `POST workspaces/:id/duplicate`.
+
+**Deploying**: see `START-HERE.md` (Railway, one service; or site and server on separate addresses with `VITE_API_URL`, `ALLOWED_ORIGINS` and `CROSS_SITE_COOKIES`).
 
 **Security notes**: logins and sign-ups are rate limited, writes from other sites are refused, every workspace query is scoped to the signed-in user, and saved data is limited to 5 MB. Keep `.env` out of version control (`server/.gitignore` already does).
 
@@ -456,5 +469,5 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 - Placement is grid-based, so pieces always snap to whole studs.
 - Stacking is simplified. Pieces rest on the highest piece under their footprint, and there is no real connection or collision check beyond that.
 - Saved camera angles and home tour stops are not stored in the JSON file.
-- Walk mode has no collision (you can also place pieces while walking), so you can walk through walls and furniture. Place your stops where you want the camera to be.
+- Walking has collision with walls, floors and furniture, and you can climb stairs. Doors and gates are walk-through. Small decorations (studs, small items) are ignored. If a piece lands on you, you can walk out of it. Turn on **Walk through walls** or switch to **Fly** to go anywhere. Place your stops where you want the camera to be.
 - There is no multi-select or move tool. To reposition a piece, remove it and place it again.
