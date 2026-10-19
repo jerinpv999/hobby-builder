@@ -5314,6 +5314,1488 @@ regCustom("carporch", "Car porch", [
   return g;
 });
 
+/* ===================== Christmas: trees, light strings and ornaments ===================== */
+const pinemat = (hex) => mat(hex, { roughness: 0.85, flatShading: true });
+const pineD = pinemat("#1E6B36"), pineL = pinemat("#2E8B4A");
+const snowW = mat("#F7FAFC", { roughness: 0.9 });
+const iceM = mat("#CFEFFF", { transparent: true, opacity: 0.8, roughness: 0.1 });
+const xRed = mat("#C8102E", { roughness: 0.6 });
+const xGreen = mat("#1F7A3A", { roughness: 0.6 });
+const BULBC = ["#E53935", "#FFC107", "#2196F3", "#43A047", "#FF80AB", "#FFFFFF"];
+const bulbMat = (c, k = 1.2) => mat(c, { emissive: c, emissiveIntensity: k, roughness: 0.3 });
+const pulsing = (o, amp, speed, ph = 0) => {
+  o.userData.spin = { pulse: { amp, speed }, ph };
+  return o;
+};
+const falling = (o, f, ph) => {
+  o.userData.spin = { fall: f, ph };
+  return o;
+};
+const starGeos = {};
+const starGeo = (r1, r2, depth, pts = 5) => {
+  const k = [r1, r2, depth, pts].join();
+  if (!starGeos[k]) {
+    const s = new THREE.Shape();
+    for (let i = 0; i < pts * 2; i++) {
+      const r = i % 2 ? r2 : r1;
+      const a = Math.PI / 2 + (i * Math.PI) / pts;
+      i ? s.lineTo(r * Math.cos(a), r * Math.sin(a)) : s.moveTo(r * Math.cos(a), r * Math.sin(a));
+    }
+    s.closePath();
+    const geo = new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false });
+    geo.translate(0, 0, -depth / 2);
+    starGeos[k] = geo;
+  }
+  return starGeos[k];
+};
+const hasLights = (o) => o.deco === "lights" || o.deco === "both";
+const hasBaubles = (o) => o.deco === "baubles" || o.deco === "both";
+
+/* ----- the tree ----- */
+const treeSpec = (o) => {
+  const t = o.tiers;
+  const W = t <= 3 ? 2 : t <= 5 ? 3 : 4;
+  const trunk = 0.45, step = 0.95, tierH = 1.3;
+  const tiers = Array.from({ length: t }, (_, i) => ({ y: trunk + i * step, r: (W / 2 - 0.1) * (1 - (i / t) * 0.72), h: tierH }));
+  const topY = trunk + (t - 1) * step + tierH;
+  const H = topY + (o.topper === "none" ? 0.02 : 0.7);
+  return { W, tiers, topY, H, layers: Math.max(1, Math.ceil((H + 0.01) / BH)) };
+};
+// spots on the cones for the bulbs (kind 0) and the big baubles (kind 1)
+const treeSpots = (o, kind) => {
+  const sp = treeSpec(o);
+  const out = [];
+  sp.tiers.forEach((tr, i) => {
+    const n = Math.max(3, Math.round(tr.r * (kind ? 2.4 : 4)));
+    for (let k = 0; k < n; k++) {
+      const f = kind ? 0.12 + 0.18 * ((k + i) % 2) : 0.2 + 0.25 * ((k + i) % 2);
+      const rad = tr.r * (1 - f / (tr.h / 1.0) * 0.9) * (kind ? 0.98 : 0.9);
+      const a = i * 1.9 + (k / n) * Math.PI * 2 + (kind ? 0.5 : 0);
+      out.push({ x: sp.W / 2 + Math.cos(a) * rad, y: tr.y + tr.h * f, z: sp.W / 2 + Math.sin(a) * rad, c: BULBC[(i + k + kind * 2) % (kind ? 5 : 6)] });
+    }
+  });
+  return out;
+};
+const topperAt = (g, kind, x, y, z) => {
+  if (kind === "star") {
+    add(g, starGeo(0.34, 0.15, 0.14), bulbMat("#FFD54A", 0.9), x, y + 0.3, z);
+    return;
+  }
+  // an angel: white gown, head, wings, halo
+  Cone(g, 0.18, 0.4, 12, mat("#FFFFFF", { roughness: 0.7 }), x, y + 0.2, z);
+  Sph(g, 0.085, mat("#F5D6B8"), x, y + 0.48, z);
+  [-1, 1].forEach((s) => {
+    const w = Sph(g, 0.15, mat("#FFFFFF", { roughness: 0.6 }), x + s * 0.17, y + 0.32, z - 0.02);
+    w.scale.set(0.4, 1.0, 0.25);
+    w.rotation.z = s * -0.5;
+  });
+  add(g, G(THREE.TorusGeometry, 0.085, 0.012, 6, 16), bulbMat("#FFD54A", 0.9), x, y + 0.62, z).rotation.x = Math.PI / 2;
+};
+const TREE_PARAMS = [
+  { key: "tiers", label: "Tiers", kind: "num", min: 3, max: 7, step: 1, def: 4 },
+  { key: "style", label: "Tree", kind: "sel", def: "green", options: [["green", "Green fir"], ["snowy", "Snow-covered"], ["white", "White tree"]] },
+  { key: "topper", label: "Top", kind: "sel", def: "star", options: [["star", "Star"], ["angel", "Angel"], ["none", "Nothing"]] },
+  { key: "deco", label: "Decoration", kind: "sel", def: "both", options: [["both", "Baubles and lights"], ["lights", "Fairy lights"], ["baubles", "Baubles"], ["none", "Plain"]] },
+  ...lightParams,
+];
+regCustom("xtree", "Christmas tree", TREE_PARAMS, (o) => {
+  const sp = treeSpec(o);
+  return { w: sp.W, d: sp.W, h: sp.layers, top: false };
+}, (c, o) => {
+  const g = new THREE.Group();
+  const sp = treeSpec(o);
+  const cx = sp.W / 2;
+  const white = o.style === "white";
+  const A = white ? pinemat("#EAF1F6") : pineD, Bm = white ? pinemat("#FFFFFF") : pineL;
+  Cyl(g, 0.17, 0.2, sp.tiers[0].y + 0.2, mat("#5A3A1E"), cx, (sp.tiers[0].y + 0.2) / 2, cx); // trunk
+  Cyl(g, 0.55 + (sp.W - 2) * 0.12, 0.6 + (sp.W - 2) * 0.12, 0.12, xRed, cx, 0.06, cx); // tree skirt
+  sp.tiers.forEach((tr, i) => {
+    Cone(g, tr.r, tr.h, 14, i % 2 ? Bm : A, cx, tr.y + tr.h / 2, cx);
+    if (o.style === "snowy") {
+      // snow settled on each tier: a white cap and lumps on the branch ends
+      Cone(g, tr.r * 0.62, tr.h * 0.5, 14, snowW, cx, tr.y + tr.h * 0.75, cx);
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + i;
+        Sph(g, 0.09, snowW, cx + Math.cos(a) * tr.r * 0.82, tr.y + tr.h * 0.16, cx + Math.sin(a) * tr.r * 0.82).scale.set(1, 0.6, 1);
+      }
+    }
+  });
+  if (hasBaubles(o)) {
+    treeSpots(o, 1).forEach((s, i) => {
+      const bc = [c, "#D8A93A", "#2E6FD6", "#E8E8F0"][i % 4];
+      Sph(g, 0.1, mat(bc, { metalness: 0.5, roughness: 0.2 }), s.x, s.y, s.z);
+    });
+    // a gold garland spiralling down
+    for (let i = 0; i < 40; i++) {
+      const f = i / 40;
+      const y = sp.topY - 0.2 - f * (sp.topY - 0.7);
+      const rad = sp.tiers[0].r * (0.2 + 0.78 * f) * 0.92;
+      Sph(g, 0.045, brassM, cx + Math.cos(f * 22) * rad, y, cx + Math.sin(f * 22) * rad);
+    }
+  }
+  if (hasLights(o)) treeSpots(o, 0).forEach((s, i) => pulsing(Sph(g, 0.05, bulbMat(s.c, 1.4), s.x, s.y, s.z), 0.25, 2.4 + (i % 3), i * 1.3));
+  if (o.topper !== "none") topperAt(g, o.topper, cx, sp.topY - 0.05, cx);
+  return g;
+}, (o, c) => {
+  if (!hasLights(o)) return [];
+  const sp = treeSpec(o);
+  const out = [{ kind: "point", pos: [0, sp.H * 0.5, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 9 }];
+  const spots = treeSpots(o, 0);
+  const every = Math.max(1, Math.ceil(spots.length / 22));
+  spots.forEach((s, i) => {
+    if (i % every === 0) out.push({ kind: "point", pos: [s.x - sp.W / 2, s.y, s.z - sp.W / 2], power: (o.intensity / 100) * 0.8, color: s.c, dist: 2, haloOnly: true, size: 0.5 });
+  });
+  return out;
+});
+
+/* ----- fairy light strings and icicle lights ----- */
+const STRING_PARAMS = [
+  { key: "len", label: "Length", kind: "num", min: 2, max: 12, step: 1, def: 4 },
+  { key: "tall", label: "Height", kind: "num", min: 2, max: 8, step: 1, def: 2 },
+  { key: "style", label: "Lights", kind: "sel", def: "multi", options: [["multi", "Colored bulbs"], ["warm", "Warm white"], ["cool", "Cool white"], ["icicle", "Icicle lights"], ["curtain", "Curtain lights"]] },
+  { key: "twinkle", label: "Twinkle", kind: "tog", def: true },
+  { key: "intensity", label: "Brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 80 },
+];
+// where the bulbs hang: a sagging wire along x, hung from the top edge (y = height)
+const stringBulbs = (o) => {
+  const L = o.len, H = o.tall * BH;
+  const sag = Math.min(0.5, 0.12 + L * 0.04);
+  const wireY = (x) => H - 0.06 - sag * Math.sin((Math.PI * (x - 0.1)) / (L - 0.2));
+  const out = [];
+  const gap = o.style === "icicle" || o.style === "curtain" ? 0.34 : 0.5;
+  for (let x = 0.3; x <= L - 0.25; x += gap) {
+    const i = out.length;
+    const w = wireY(x);
+    if (o.style === "icicle") {
+      const drop = 0.25 + 0.3 * rnd(i + 3);
+      out.push({ x, y: w - drop, z: 0.5, wy: w, c: i % 2 ? "#DDF1FF" : "#FFFFFF", icicle: drop });
+    } else if (o.style === "curtain") {
+      for (let k = 1; k <= Math.min(o.tall * 2, 6) && w - k * 0.5 > 0.12; k++) out.push({ x, y: w - k * 0.5, z: 0.5, wy: w, c: "#FFF1CC", strand: k });
+    } else {
+      out.push({ x, y: w - 0.1, z: 0.5, wy: w, c: o.style === "multi" ? BULBC[i % 5] : o.style === "warm" ? "#FFD9A0" : "#D8ECFF" });
+    }
+  }
+  return out;
+};
+regCustom("xlightstring", "Light string", STRING_PARAMS, (o) => ({ w: o.len, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len, H = o.tall * BH;
+  const bulbs = stringBulbs(o);
+  const wire = mat("#1F3B2A");
+  let prev = null;
+  const sag = Math.min(0.5, 0.12 + L * 0.04);
+  for (let x = 0.1; x <= L - 0.1 + 0.01; x += 0.25) {
+    const p = [x, H - 0.06 - sag * Math.sin((Math.PI * (x - 0.1)) / (L - 0.2)), 0.5];
+    if (prev) tube(g, prev, p, 0.018, wire);
+    prev = p;
+  }
+  bulbs.forEach((b, i) => {
+    if (b.strand) {
+      if (b.strand === 1) tube(g, [b.x, b.wy, 0.5], [b.x, Math.min(...bulbs.filter((q) => q.x === b.x).map((q) => q.y)), 0.5], 0.01, wire);
+      pulsing(Sph(g, 0.045, bulbMat(b.c, 1.3), b.x, b.y, 0.5), 0.3, 3 + (i % 3), i * 0.9);
+    } else if (b.icicle) {
+      const cone = add(g, G(THREE.ConeGeometry, 0.05, b.icicle, 8), bulbMat(b.c, 1.0), b.x, b.y + b.icicle / 2, 0.5);
+      cone.rotation.x = Math.PI;
+      if (o.twinkle) pulsing(cone, 0.15, 2 + (i % 4) * 0.7, i * 1.1);
+    } else {
+      tube(g, [b.x, b.wy, 0.5], [b.x, b.y + 0.05, 0.5], 0.012, wire);
+      const bulb = Sph(g, 0.065, bulbMat(b.c, 1.4), b.x, b.y, 0.5);
+      bulb.scale.set(0.85, 1.15, 0.85);
+      if (o.twinkle) pulsing(bulb, 0.28, 2.2 + (i % 4) * 0.8, i * 1.7);
+    }
+  });
+  return g;
+}, (o, c) => {
+  const bulbs = stringBulbs(o);
+  const k = o.intensity / 100;
+  const out = [{ kind: "point", pos: [0, o.tall * BH - 0.6, 0], power: k * 0.8, color: o.style === "multi" ? "#FFE2B0" : o.style === "cool" || o.style === "icicle" ? TONES.cool : TONES.warm, dist: 5 }];
+  const every = Math.max(1, Math.ceil(bulbs.length / 24));
+  bulbs.forEach((b, i) => {
+    if (i % every === 0) out.push({ kind: "point", pos: [b.x - o.len / 2, b.y, 0], power: k, color: b.c, dist: 2, haloOnly: true, size: 0.42 });
+  });
+  return out;
+});
+
+/* ----- garland ----- */
+regCustom("xgarland", "Garland", [
+  { key: "len", label: "Length", kind: "num", min: 2, max: 10, step: 1, def: 4 },
+  { key: "tall", label: "Height", kind: "num", min: 1, max: 8, step: 1, def: 2 },
+  { key: "extras", label: "Trimmed with", kind: "sel", def: "baubles", options: [["baubles", "Baubles and bows"], ["lights", "Fairy lights"], ["berries", "Red berries"], ["plain", "Nothing"]] },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 80 },
+], (o) => ({ w: o.len, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len, H = o.tall * BH;
+  const sag = Math.min(0.55, 0.15 + L * 0.05);
+  const at = (x) => H - 0.2 - sag * Math.sin((Math.PI * (x - 0.15)) / (L - 0.3));
+  for (let x = 0.2; x <= L - 0.2; x += 0.12) {
+    const y = at(x);
+    const lf = Sph(g, 0.17, (x * 8) % 2 > 1 ? pineD : pineL, x, y, 0.5);
+    lf.scale.set(1.1, 0.9, 1);
+  }
+  [0.18, L - 0.18].forEach((x) => { // red bows at both ends
+    Sph(g, 0.09, xRed, x, at(x) + 0.05, 0.72);
+    [-1, 1].forEach((s) => Cone(g, 0.1, 0.24, 4, xRed, x + s * 0.17, at(x) + 0.03, 0.72).rotation.z = -s * Math.PI / 2);
+  });
+  garlandTrim(o).forEach((t, i) => {
+    const y = at(t.x);
+    if (t.kind === "bauble") Sph(g, 0.08, mat(t.c, { metalness: 0.5, roughness: 0.2 }), t.x, y - 0.05, 0.62);
+    else if (t.kind === "berry") Sph(g, 0.05, mat("#D61F2F"), t.x + 0.05, y + 0.1, 0.62);
+    else pulsing(Sph(g, 0.05, bulbMat(t.c, 1.4), t.x, y - 0.03, 0.66), 0.25, 2.5 + (i % 3), i);
+  });
+  return g;
+}, (o) => {
+  if (o.extras !== "lights") return [];
+  const k = o.intensity / 100;
+  const out = [{ kind: "point", pos: [0, o.tall * BH - 0.6, 0], power: k * 0.7, color: TONES.warm, dist: 5 }];
+  garlandTrim(o).forEach((t, i) => i % Math.ceil(garlandTrim(o).length / 20) === 0 && out.push({ kind: "point", pos: [t.x - o.len / 2, o.tall * BH - 0.4, 0.12], power: k, color: t.c, dist: 2, haloOnly: true, size: 0.4 }));
+  return out;
+});
+const garlandTrim = (o) => {
+  const out = [];
+  for (let x = 0.55, i = 0; x < o.len - 0.4; x += o.extras === "lights" ? 0.45 : 0.6, i++) {
+    if (o.extras === "baubles") out.push({ x, kind: "bauble", c: ["#C8102E", "#D8A93A", "#2E6FD6"][i % 3] });
+    else if (o.extras === "berries") out.push({ x, kind: "berry", c: "#D61F2F" });
+    else if (o.extras === "lights") out.push({ x, kind: "light", c: BULBC[i % 5] });
+  }
+  return out;
+};
+
+/* ----- wreath ----- */
+regCustom("xwreath", "Wreath", [
+  { key: "size", label: "Size (studs)", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "lights", label: "Fairy lights", kind: "tog", def: true },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+], (o) => ({ w: o.size, d: 1, h: o.size, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const S = o.size, cx = S / 2, cy = (S * BH) / 2;
+  const R = Math.min(S * 0.5, cy) * 0.6;
+  const n = 18 + S * 8;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const lf = Sph(g, R * 0.2, i % 2 ? pineD : pineL, cx + Math.cos(a) * R, cy + Math.sin(a) * R, 0.2);
+    lf.scale.set(1, 1, 0.9);
+  }
+  for (let i = 0; i < 9 * S; i++) {
+    const a = i * 2.4;
+    Sph(g, 0.04, mat("#D61F2F"), cx + Math.cos(a) * (R + 0.08 * Math.sin(i)), cy + Math.sin(a) * (R + 0.08 * Math.sin(i)), 0.32);
+  }
+  if (o.lights) wreathLights(o).forEach((p, i) => pulsing(Sph(g, 0.045, bulbMat(p.c, 1.4), cx + p.x, cy + p.y, 0.34), 0.25, 2 + (i % 3), i));
+  // the bow
+  const by = cy - R + 0.04;
+  [-1, 1].forEach((s) => {
+    Cone(g, 0.14 * S ** 0.5, 0.34 * S ** 0.5, 4, xRed, cx + s * 0.2 * S ** 0.5, by, 0.34).rotation.z = -s * (Math.PI / 2);
+    Cone(g, 0.07, 0.3 * S ** 0.5, 4, xRed, cx + s * 0.08, by - 0.12 * S ** 0.5, 0.33).rotation.z = s * 0.25;
+  });
+  Sph(g, 0.08 * S ** 0.5, xRed, cx, by, 0.36);
+  return g;
+}, (o) => {
+  if (!o.lights) return [];
+  const k = o.intensity / 100;
+  return wreathLights(o).filter((_, i) => i % 2 === 0).map((p) => ({ kind: "point", pos: [p.x, o.size * BH / 2 + p.y, 0.4], power: k, color: p.c, dist: 1.6, haloOnly: true, size: 0.36 }));
+});
+const wreathLights = (o) => {
+  const S = o.size, R = Math.min(S * 0.5, (S * BH) / 2) * 0.6;
+  const n = 8 + S * 4;
+  return Array.from({ length: n }, (_, i) => ({ x: Math.cos((i / n) * Math.PI * 2 + 0.3) * R, y: Math.sin((i / n) * Math.PI * 2 + 0.3) * R, c: BULBC[i % 5] }));
+};
+
+/* ----- hanging ornaments: star lantern, baubles, bells, snowflake, stocking ----- */
+const CORD = mat("#B9A27A");
+regCustom("xstar", "Star lantern", [
+  { key: "tall", label: "Hang height", kind: "num", min: 2, max: 8, step: 1, def: 3 },
+  { key: "size", label: "Size (studs)", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "shade", label: "Star", kind: "sel", def: "gold", options: [["gold", "Golden"], ["white", "White"], ["red", "Red"], ["color", "Chosen color"]] },
+  { key: "spin", label: "Turns slowly", kind: "tog", def: true },
+  { key: "intensity", label: "Brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 85 },
+], (o) => ({ w: o.size, d: o.size, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const S = o.size, H = o.tall * BH, cx = S / 2;
+  const col = o.shade === "white" ? "#FFF6E0" : o.shade === "red" ? "#E0302E" : o.shade === "color" ? c : "#FFC93C";
+  const R = S * 0.5 * 0.9, y = Math.max(R + 0.35, H - 0.9 - R);
+  tube(g, [cx, H, cx], [cx, y + R, cx], 0.015, CORD);
+  const pv = new THREE.Group();
+  pv.position.set(cx, y, cx);
+  g.add(pv);
+  // a 3D star: two crossed five-point stars, with a small tail below
+  const m = bulbMat(col, o.intensity / 60);
+  add(pv, starGeo(R, R * 0.45, R * 0.35), m, 0, 0, 0);
+  add(pv, starGeo(R, R * 0.45, R * 0.35), m, 0, 0, 0).rotation.y = Math.PI / 2;
+  const tail = add(pv, G(THREE.ConeGeometry, R * 0.12, R * 0.7, 6), m, 0, -R * 0.95, 0);
+  tail.rotation.x = Math.PI;
+  Sph(pv, R * 0.12, m, 0, 0, 0);
+  if (o.spin) pv.userData.spin = { axis: "y", speed: 0.8 };
+  return g;
+}, (o, c) => {
+  const col = o.shade === "white" ? "#FFF6E0" : o.shade === "red" ? "#FF5A4A" : o.shade === "color" ? c : "#FFD27A";
+  const R = o.size * 0.45, H = o.tall * BH;
+  return { kind: "point", pos: [0, Math.max(R + 0.35, H - 0.9 - R), 0], power: o.intensity / 100, color: col, dist: 8 };
+});
+
+const ORN_COL = (c, i) => [c, "#D8A93A", "#2E6FD6", "#E8E8F0", "#2E9E4F"][i % 5];
+regCustom("xbauble", "Hanging baubles", [
+  { key: "n", label: "Baubles", kind: "num", min: 1, max: 5, step: 1, def: 3 },
+  { key: "tall", label: "Hang height", kind: "num", min: 1, max: 8, step: 1, def: 2 },
+  { key: "sway", label: "Swaying", kind: "sel", def: "gentle", options: [["still", "Still"], ["gentle", "Gentle"]] },
+], (o) => ({ w: 1, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  B(g, 0.5, 0.06, 0.12, brassM, 0.5, H - 0.03, 0.5);
+  for (let i = 0; i < o.n; i++) {
+    const x = o.n === 1 ? 0.5 : 0.1 + (i / (o.n - 1)) * 0.8;
+    const drop = 0.45 + ((i * 0.37) % 0.5) + 0.05;
+    const r = 0.13 + 0.02 * (i % 3);
+    const y = Math.max(r + 0.05, H - 0.1 - drop - r);
+    const pv = new THREE.Group();
+    pv.position.set(x, H - 0.06, 0.5);
+    g.add(pv);
+    const py = (v) => v - (H - 0.06);
+    tube(pv, [0, 0, 0], [0, py(y + r), 0], 0.008, brassM);
+    Cyl(pv, 0.03, 0.03, 0.04, brassM, 0, py(y + r) + 0.01, 0);
+    Sph(pv, r, mat(ORN_COL(c, i), { metalness: 0.55, roughness: 0.15 }), 0, py(y), 0);
+    if (o.sway === "gentle") swaying(pv, "z", 0.12, 1.2 + i * 0.2, i * 1.3);
+  }
+  return g;
+});
+regCustom("xbells", "Jingle bells", [
+  { key: "tall", label: "Hang height", kind: "num", min: 1, max: 8, step: 1, def: 2 },
+  { key: "swing", label: "Ringing", kind: "sel", def: "gentle", options: [["still", "Still"], ["gentle", "Gentle"], ["lively", "Lively"]] },
+], (o) => ({ w: 1, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const pv = new THREE.Group();
+  pv.position.set(0.5, H - 0.04, 0.5);
+  g.add(pv);
+  const Y = (v) => v - (H - 0.04);
+  const by = Math.max(0.35, H - 0.95);
+  tube(pv, [0, 0, 0], [0, Y(by + 0.55), 0], 0.012, CORD);
+  [-0.22, 0.22].forEach((x, i) => {
+    const bell = new THREE.Group();
+    bell.position.set(x, Y(by + 0.5), 0);
+    pv.add(bell);
+    tube(bell, [0, 0, 0], [0, -0.06, 0], 0.01, brassM);
+    lathe(bell, "xbell", [[0.001, 0], [0.2, 0], [0.22, 0.07], [0.16, 0.24], [0.09, 0.36], [0.001, 0.4]], brassM, 0, -0.42, 0);
+    Sph(bell, 0.045, steel, 0, -0.4, 0);
+    if (o.swing !== "still") swaying(bell, "z", o.swing === "lively" ? 0.45 : 0.2, 3 + i, i * 2);
+  });
+  // red ribbon bow on the cord
+  Sph(pv, 0.06, xRed, 0, Y(by + 0.55), 0);
+  [-1, 1].forEach((s) => Cone(pv, 0.07, 0.2, 4, xRed, s * 0.12, Y(by + 0.55), 0).rotation.z = -s * Math.PI / 2);
+  return g;
+});
+regCustom("xsnowflake", "Snowflake ornament", [
+  { key: "tall", label: "Hang height", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "size", label: "Size (studs)", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "spin", label: "Turns slowly", kind: "tog", def: true },
+  { key: "glow", label: "Glows", kind: "tog", def: true },
+], (o) => ({ w: o.size, d: o.size, h: Math.max(o.tall, o.size === 2 ? 2 : 1), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const S = o.size, H = Math.max(o.tall, S === 2 ? 2 : 1) * BH, cx = S / 2;
+  const R = S * 0.46;
+  const y = Math.max(R + 0.1, H - 0.8 - R);
+  tube(g, [cx, H, cx], [cx, y + R * 0.1, cx], 0.012, CORD);
+  const pv = new THREE.Group();
+  pv.position.set(cx, y, cx);
+  g.add(pv);
+  const m = o.glow ? bulbMat("#DDF1FF", 0.8) : mat("#F4FAFF", { roughness: 0.3 });
+  for (let k = 0; k < 3; k++) B(pv, R * 2, 0.05, 0.05, m, 0, 0, 0).rotation.z = (k * Math.PI) / 3;
+  for (let k = 0; k < 6; k++) {
+    const a = (k * Math.PI) / 3;
+    [0.5, 0.78].forEach((f, j) => {
+      [-1, 1].forEach((s) => {
+        const len = R * (0.34 - j * 0.12), ang = a + s * 0.9;
+        const b = B(pv, len, 0.04, 0.05, m, Math.cos(a) * R * f + (Math.cos(ang) * len) / 2, Math.sin(a) * R * f + (Math.sin(ang) * len) / 2, 0);
+        b.rotation.z = ang;
+      });
+    });
+  }
+  if (o.spin) swaying(pv, "y", 1.3, 0.5); // a slow turn back and forth
+  return g;
+}, (o) => (o.glow ? { kind: "point", pos: [0, Math.max(o.size * 0.46 + 0.1, o.tall * BH - 0.8 - o.size * 0.46), 0], power: 0.35, color: TONES.cool, dist: 4 } : []));
+regCustom("xstocking", "Christmas stocking", [
+  { key: "tall", label: "Hang height", kind: "num", min: 1, max: 6, step: 1, def: 2 },
+  { key: "gift", label: "Filled with gifts", kind: "tog", def: true },
+  { key: "sway", label: "Swaying", kind: "tog", def: true },
+], (o) => ({ w: 1, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  Cyl(g, 0.03, 0.03, 0.14, brassM, 0.5, H - 0.07, 0.4);
+  const pv = new THREE.Group();
+  pv.position.set(0.5, H - 0.12, 0.4);
+  g.add(pv);
+  const m = mat(c, { roughness: 0.9 });
+  const fur = mat("#FFFFFF", { roughness: 0.95 });
+  B(pv, 0.3, 0.55, 0.2, m, 0, -0.3, 0); // leg
+  B(pv, 0.46, 0.22, 0.2, m, 0.08, -0.66, 0); // foot
+  Sph(pv, 0.11, m, 0.31, -0.66, 0).scale.set(1, 1, 0.9);
+  B(pv, 0.36, 0.14, 0.26, fur, 0, -0.03, 0); // fur cuff
+  B(pv, 0.12, 0.1, 0.22, fur, -0.12, -0.74, 0.0); // heel patch
+  Sph(pv, 0.08, fur, 0.38, -0.66, 0).scale.set(0.8, 1, 0.9); // toe patch
+  if (o.gift) {
+    B(pv, 0.12, 0.12, 0.1, mat("#2E9E4F"), -0.07, 0.05, 0).rotation.z = 0.4;
+    Cyl(pv, 0.03, 0.03, 0.22, mat("#FFFFFF"), 0.05, 0.1, 0).rotation.z = -0.2;
+    Cyl(pv, 0.03, 0.03, 0.22, xRed, 0.09, 0.08, 0).rotation.z = -0.25;
+    Sph(pv, 0.06, mat("#2E6FD6"), 0.1, 0.05, 0);
+  }
+  if (o.sway) swaying(pv, "z", 0.1, 1.5);
+  return g;
+});
+
+/* ===================== Christmas: Santa, friends, gifts, candy canes ===================== */
+// a bow: two ribbon loops, a knot and two tails, facing +z
+function bowAt(g, x, y, z, s, m = xRed) {
+  [-1, 1].forEach((d) => {
+    const loop = Sph(g, 0.13 * s, m, x + d * 0.14 * s, y + 0.04 * s, z);
+    loop.scale.set(1, 0.65, 0.4);
+    loop.rotation.z = d * 0.45;
+    const tail = B(g, 0.07 * s, 0.26 * s, 0.025 * s, m, x + d * 0.07 * s, y - 0.17 * s, z);
+    tail.rotation.z = d * 0.25;
+  });
+  Sph(g, 0.065 * s, m, x, y, z + 0.015 * s);
+}
+const skinM = mat("#F2C9A5", { roughness: 0.7 });
+const furW = mat("#FFFFFF", { roughness: 0.95 });
+const coatM = (c) => mat(c, { roughness: 0.85 });
+
+regCustom("xsanta", "Santa Claus", [
+  { key: "pose", label: "Pose", kind: "sel", def: "wave", options: [["stand", "Standing"], ["wave", "Waving"], ["sack", "With a sack of gifts"]] },
+], () => ({ w: 2, d: 2, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cx = 1, cz = 1;
+  const red = coatM(c);
+  [-1, 1].forEach((s) => { // boots and legs
+    Cyl(g, 0.17, 0.19, 0.3, black, cx + s * 0.22, 0.15, cz);
+    B(g, 0.3, 0.14, 0.2, black, cx + s * 0.22, 0.07, cz + 0.12);
+    Cyl(g, 0.16, 0.17, 0.4, red, cx + s * 0.22, 0.5, cz);
+  });
+  Cyl(g, 0.52, 0.56, 0.12, furW, cx, 0.78, cz); // fur hem
+  Sph(g, 0.5, red, cx, 1.08, cz).scale.set(1, 1.0, 0.95); // belly
+  Cyl(g, 0.5, 0.5, 0.11, black, cx, 1.02, cz).scale.set(1, 1, 0.95); // belt
+  B(g, 0.2, 0.18, 0.05, brassM, cx, 1.02, cz + 0.49); // buckle
+  B(g, 0.1, 0.1, 0.06, red, cx, 1.02, cz + 0.5);
+  Cyl(g, 0.045, 0.045, 0.7, furW, cx, 1.18, cz + 0.47).scale.set(1, 1, 0.3); // fur down the front
+  Sph(g, 0.34, red, cx, 1.42, cz).scale.set(1.15, 0.8, 0.9); // shoulders
+  // head
+  Sph(g, 0.24, skinM, cx, 1.7, cz);
+  Sph(g, 0.22, furW, cx, 1.58, cz + 0.12).scale.set(1.15, 1.15, 0.7); // beard
+  [-1, 1].forEach((s) => {
+    Sph(g, 0.09, furW, cx + s * 0.09, 1.72, cz + 0.22).scale.set(1.2, 0.7, 0.8); // moustache
+    Sph(g, 0.025, black, cx + s * 0.09, 1.78, cz + 0.22);
+    B(g, 0.1, 0.03, 0.04, furW, cx + s * 0.09, 1.83, cz + 0.22).rotation.z = s * -0.2;
+  });
+  Sph(g, 0.05, mat("#E9908A"), cx, 1.72, cz + 0.255);
+  // hat
+  Cyl(g, 0.27, 0.27, 0.1, furW, cx, 1.9, cz);
+  const hat = new THREE.Group();
+  hat.position.set(cx, 1.93, cz);
+  g.add(hat);
+  Cone(hat, 0.25, 0.4, 14, red, 0, 0.2, 0);
+  const tip = new THREE.Group();
+  tip.position.set(0, 0.36, 0);
+  hat.add(tip);
+  Cone(tip, 0.1, 0.2, 10, red, 0.04, 0.07, 0).rotation.z = -0.5;
+  Sph(tip, 0.07, furW, 0.14, 0.12, 0);
+  swaying(tip, "z", 0.18, 2.4);
+  // arms
+  const arm = (s, raise) => {
+    const pv = new THREE.Group();
+    pv.position.set(cx + s * 0.4, 1.42, cz);
+    g.add(pv);
+    Cyl(pv, 0.1, 0.12, 0.55, red, 0, -0.28, 0);
+    Cyl(pv, 0.13, 0.13, 0.09, furW, 0, -0.58, 0);
+    Sph(pv, 0.1, black, 0, -0.68, 0);
+    return pv;
+  };
+  const left = arm(-1), right = arm(1);
+  left.rotation.z = -0.25;
+  right.rotation.z = 0.25;
+  if (o.pose === "wave") {
+    right.rotation.z = 2.5;
+    swaying(right, "z", 0.3, 3.2);
+    right.userData.spin.base = 2.5;
+  } else if (o.pose === "sack") {
+    left.rotation.z = -0.5;
+  }
+  if (o.pose === "sack") {
+    // a sack of gifts on the ground at his side
+    const sk = mat("#8B6B45", { roughness: 0.95 });
+    Sph(g, 0.34, sk, cx - 0.72, 0.34, cz + 0.1).scale.set(1, 1.05, 1);
+    Cone(g, 0.16, 0.3, 8, sk, cx - 0.72, 0.78, cz + 0.1);
+    Cyl(g, 0.1, 0.1, 0.05, xRed, cx - 0.72, 0.68, cz + 0.1);
+    B(g, 0.18, 0.18, 0.18, mat("#2E9E4F"), cx - 0.66, 0.88, cz + 0.08).rotation.y = 0.5;
+    B(g, 0.16, 0.16, 0.16, mat("#2E6FD6"), cx - 0.78, 0.84, cz + 0.16).rotation.y = -0.3;
+  } else {
+    Sph(g, 0.2, mat("#8B6B45", { roughness: 0.95 }), cx, 1.18, cz - 0.48).scale.set(1, 1.2, 0.7); // the sack behind his back
+  }
+  return g;
+});
+
+regCustom("xsnowman", "Snowman", [
+  { key: "hat", label: "Hat", kind: "sel", def: "top", options: [["top", "Top hat"], ["beanie", "Woolly hat"], ["none", "No hat"]] },
+  { key: "scarf", label: "Scarf", kind: "tog", def: true },
+], () => ({ w: 2, d: 2, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cx = 1, cz = 1;
+  Sph(g, 0.52, snowW, cx, 0.5, cz).scale.set(1, 0.95, 1);
+  Sph(g, 0.38, snowW, cx, 1.18, cz);
+  Sph(g, 0.28, snowW, cx, 1.68, cz);
+  const coal = mat("#222222", { roughness: 0.9 });
+  [-1, 1].forEach((s) => Sph(g, 0.03, coal, cx + s * 0.1, 1.76, cz + 0.25));
+  Cone(g, 0.045, 0.3, 8, mat("#F28C28"), cx, 1.68, cz + 0.4).rotation.x = Math.PI / 2; // carrot
+  for (let k = -2; k <= 2; k++) Sph(g, 0.022, coal, cx + k * 0.06, 1.56 - 0.02 * (2 - Math.abs(k)) * -1 - 0.03 * Math.abs(k), cz + 0.26); // smile
+  [1.3, 1.15, 1.0].forEach((y) => Sph(g, 0.035, coal, cx, y, cz + 0.37 - (1.3 - y) * 0.05));
+  [-1, 1].forEach((s) => { // twig arms
+    tube(g, [cx + s * 0.34, 1.2, cz], [cx + s * 0.85, 1.55, cz], 0.025, mat("#5A3A1E"));
+    tube(g, [cx + s * 0.66, 1.43, cz], [cx + s * 0.74, 1.67, cz], 0.018, mat("#5A3A1E"));
+  });
+  if (o.scarf) {
+    add(g, G(THREE.TorusGeometry, 0.27, 0.07, 8, 18), mat(c, { roughness: 0.9 }), cx, 1.46, cz).rotation.x = Math.PI / 2;
+    B(g, 0.14, 0.4, 0.05, mat(c, { roughness: 0.9 }), cx + 0.15, 1.24, cz + 0.28).rotation.z = 0.1;
+  }
+  if (o.hat === "top") {
+    Cyl(g, 0.3, 0.3, 0.05, black, cx, 1.93, cz);
+    Cyl(g, 0.19, 0.19, 0.32, black, cx, 2.1, cz);
+    Cyl(g, 0.195, 0.195, 0.06, xRed, cx, 1.99, cz);
+  } else if (o.hat === "beanie") {
+    Sph(g, 0.29, mat(c, { roughness: 0.9 }), cx, 1.8, cz).scale.set(1, 0.7, 1);
+    Cyl(g, 0.3, 0.3, 0.08, furW, cx, 1.78, cz);
+    Sph(g, 0.07, furW, cx, 2.0, cz);
+  }
+  return g;
+});
+
+regCustom("xreindeer", "Reindeer", [
+  { key: "nose", label: "Nose", kind: "sel", def: "glow", options: [["glow", "Glowing red nose"], ["plain", "Dark nose"]] },
+  { key: "nod", label: "Nods its head", kind: "tog", def: true },
+], () => ({ w: 2, d: 3, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const br = mat("#8B5A2B", { roughness: 0.9 }), br2 = mat("#C49A6C", { roughness: 0.9 });
+  const cx = 1;
+  Sph(g, 0.5, br, cx, 0.98, 1.0).scale.set(0.82, 0.78, 1.45);
+  Sph(g, 0.3, br2, cx, 0.78, 1.0).scale.set(0.8, 0.6, 1.4);
+  [[-0.26, 0.5], [0.26, 0.5], [-0.26, 1.55], [0.26, 1.55]].forEach(([dx, z]) => {
+    tube(g, [cx + dx, 0.85, z], [cx + dx, 0.14, z + 0.02], 0.065, br);
+    Cyl(g, 0.08, 0.08, 0.1, black, cx + dx, 0.05, z + 0.02);
+  });
+  Sph(g, 0.1, furW, cx, 1.12, 0.38); // tail
+  // neck and head on a pivot so it can nod
+  const pv = new THREE.Group();
+  pv.position.set(cx, 1.15, 1.55);
+  g.add(pv);
+  const P = (y, z) => [0, y - 1.15, z - 1.55];
+  tube(pv, P(1.1, 1.5), P(1.62, 1.95), 0.15, br);
+  Sph(pv, 0.2, br, 0, 1.72 - 1.15, 2.08 - 1.55).scale.set(0.85, 0.9, 1.15);
+  Sph(pv, 0.11, br2, 0, 1.64 - 1.15, 2.32 - 1.55).scale.set(0.8, 0.8, 1.1);
+  const noseM = o.nose === "glow" ? mat("#FF2A1A", { emissive: "#FF2A1A", emissiveIntensity: 1.6 }) : mat("#2A1A12");
+  Sph(pv, 0.065, noseM, 0, 1.64 - 1.15, 2.43 - 1.55);
+  [-1, 1].forEach((s) => {
+    Sph(pv, 0.025, black, s * 0.1, 1.78 - 1.15, 2.2 - 1.55);
+    Sph(pv, 0.07, br, s * 0.2, 1.8 - 1.15, 2.0 - 1.55).scale.set(1.4, 0.5, 0.7); // ears
+    // antlers: a main beam with three tines
+    const a0 = [s * 0.1, 1.88 - 1.15, 2.0 - 1.55];
+    const a1 = [s * 0.3, 2.15 - 1.15, 1.92 - 1.55];
+    const a2 = [s * 0.42, 2.34 - 1.15, 1.82 - 1.55];
+    tube(pv, a0, a1, 0.03, mat("#D8C7A4"));
+    tube(pv, a1, a2, 0.026, mat("#D8C7A4"));
+    tube(pv, [s * 0.2, 2.03 - 1.15, 1.96 - 1.55], [s * 0.18, 2.23 - 1.15, 2.1 - 1.55], 0.02, mat("#D8C7A4"));
+    tube(pv, [s * 0.35, 2.22 - 1.15, 1.88 - 1.55], [s * 0.55, 2.3 - 1.15, 1.95 - 1.55], 0.02, mat("#D8C7A4"));
+  });
+  add(pv, G(THREE.TorusGeometry, 0.17, 0.035, 8, 16), mat(c, { roughness: 0.7 }), 0, 1.4 - 1.15, 1.72 - 1.55).rotation.x = Math.PI / 2 - 0.5; // collar
+  Sph(pv, 0.05, brassM, 0, 1.3 - 1.15, 1.82 - 1.55); // bell
+  if (o.nod) swaying(pv, "x", 0.12, 1.4);
+  B(g, 0.9, 0.05, 0.9, mat(c, { roughness: 0.8 }), cx, 1.42, 1.0).scale.set(0.6, 1, 1); // saddle blanket
+  return g;
+}, (o) => (o.nose === "glow" ? { kind: "point", pos: [0, 1.64, 1.0], power: 0.5, color: "#FF3B2A", dist: 3 } : []));
+
+regCustom("xsleigh", "Santa's sleigh", [
+  { key: "gifts", label: "Loaded with gifts", kind: "tog", def: true },
+], () => ({ w: 2, d: 4, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const red = mat(c, { roughness: 0.6 });
+  [0.3, 1.7].forEach((x) => { // runners with curled fronts
+    B(g, 0.07, 0.07, 3.2, brassM, x, 0.1, 1.8);
+    add(g, G(THREE.TorusGeometry, 0.3, 0.035, 8, 12, Math.PI * 0.9), brassM, x, 0.38, 3.4).rotation.set(0, Math.PI / 2, Math.PI / 2 * 0 - 0.15);
+    tube(g, [x, 0.1, 0.35], [x, 0.55, 0.55], 0.03, brassM);
+    [0.8, 2.2].forEach((z) => tube(g, [x, 0.1, z], [x, 0.55, z], 0.03, brassM));
+  });
+  B(g, 1.5, 0.12, 2.8, red, 1, 0.58, 1.75); // floor
+  [-1, 1].forEach((s) => { // sides sweeping up at the front
+    B(g, 0.1, 0.5, 2.8, red, 1 + s * 0.78, 0.9, 1.75);
+    B(g, 0.1, 0.4, 0.7, red, 1 + s * 0.78, 1.1, 3.35).rotation.x = -0.5;
+    B(g, 0.12, 0.06, 2.8, brassM, 1 + s * 0.78, 1.16, 1.75);
+  });
+  B(g, 1.5, 0.5, 0.1, red, 1, 0.9, 3.15); // dash
+  B(g, 1.5, 0.95, 0.1, red, 1, 1.2, 0.3).rotation.x = 0.15; // tall back
+  B(g, 1.32, 0.12, 0.8, mat("#7A1220"), 1, 0.74, 0.9); // seat cushion
+  Sph(g, 0.1, brassM, 1, 1.72, 0.22);
+  if (o.gifts) {
+    giftBox(g, 0.4, 0.64, 1.35, 0.6, 0.5, 0.6, "#2E9E4F", "#FFD54A", { bow: false });
+    giftBox(g, 1.05, 0.64, 1.45, 0.55, 0.62, 0.55, "#2E6FD6", "#FFFFFF", { bow: true });
+    giftBox(g, 0.7, 1.14, 1.5, 0.5, 0.4, 0.5, "#E8B923", "#C8102E", { bow: true });
+    Sph(g, 0.34, mat("#8B6B45", { roughness: 0.95 }), 1, 0.98, 2.4).scale.set(1.1, 1, 1);
+  }
+  return g;
+});
+
+regCustom("xelf", "Elf", [
+  { key: "wave", label: "Waves", kind: "tog", def: true },
+], () => ({ w: 1, d: 1, h: 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const grn = mat("#2E8B4A", { roughness: 0.8 });
+  [-1, 1].forEach((s) => {
+    Cyl(g, 0.07, 0.07, 0.3, mat("#C8102E"), 0.5 + s * 0.09, 0.2, 0.5);
+    B(g, 0.12, 0.07, 0.2, mat("#3B2A1A"), 0.5 + s * 0.09, 0.04, 0.55);
+    Cone(g, 0.03, 0.1, 6, mat("#3B2A1A"), 0.5 + s * 0.09, 0.05, 0.67).rotation.x = Math.PI / 2;
+  });
+  Cone(g, 0.2, 0.5, 12, grn, 0.5, 0.5, 0.5);
+  Cyl(g, 0.17, 0.17, 0.05, mat("#3B2A1A"), 0.5, 0.42, 0.5);
+  Sph(g, 0.14, skinM, 0.5, 0.82, 0.5);
+  Sph(g, 0.02, black, 0.45, 0.84, 0.63);
+  Sph(g, 0.02, black, 0.55, 0.84, 0.63);
+  Sph(g, 0.025, mat("#E9908A"), 0.5, 0.8, 0.64);
+  [-1, 1].forEach((s) => Cone(g, 0.04, 0.16, 6, skinM, 0.5 + s * 0.17, 0.85, 0.5).rotation.z = -s * 1.2);
+  Cone(g, 0.15, 0.3, 12, mat(c, { roughness: 0.8 }), 0.5, 1.0, 0.5);
+  Cyl(g, 0.15, 0.15, 0.05, furW, 0.5, 0.9, 0.5);
+  Sph(g, 0.035, brassM, 0.5, 1.17, 0.5);
+  const arm = (s) => {
+    const pv = new THREE.Group();
+    pv.position.set(0.5 + s * 0.2, 0.66, 0.5);
+    g.add(pv);
+    Cyl(pv, 0.04, 0.04, 0.22, grn, 0, -0.1, 0);
+    Sph(pv, 0.045, skinM, 0, -0.23, 0);
+    return pv;
+  };
+  const l = arm(-1), r = arm(1);
+  l.rotation.z = -0.4;
+  r.rotation.z = 0.4;
+  if (o.wave) {
+    r.rotation.z = 2.6;
+    swaying(r, "z", 0.35, 4);
+    r.userData.spin.base = 2.6;
+  }
+  return g;
+});
+
+/* ----- gifts ----- */
+function giftBox(g, x0, y0, z0, w, h, d, wrap, rib, o = {}) {
+  const wm = mat(wrap, { roughness: 0.55 }), rm = mat(rib, { roughness: 0.4 });
+  B(g, w, h, d, wm, x0 + w / 2, y0 + h / 2, z0 + d / 2);
+  B(g, w + 0.05, 0.1, d + 0.05, mat(shade(wrap, 1.12), { roughness: 0.55 }), x0 + w / 2, y0 + h - 0.05, z0 + d / 2); // lid
+  const bw = Math.max(0.1, Math.min(w, d) * 0.2);
+  B(g, bw, h + 0.012, d + 0.056, rm, x0 + w / 2, y0 + h / 2, z0 + d / 2);
+  B(g, w + 0.056, h + 0.006, bw, rm, x0 + w / 2, y0 + h / 2, z0 + d / 2);
+  if (o.pattern === "stripes") {
+    [-1, 1].forEach((k) => B(g, 0.05, h + 0.004, d + 0.052, mat("#FFFFFF"), x0 + w / 2 + k * w * 0.33, y0 + h / 2, z0 + d / 2));
+  } else if (o.pattern === "dots") {
+    for (let i = 0; i < 6; i++) Sph(g, 0.04, mat("#FFFFFF"), x0 + w * (0.2 + 0.6 * ((i * 0.37) % 1)), y0 + h * (0.25 + 0.5 * ((i * 0.61) % 1)), z0 + d + 0.0).scale.set(1, 1, 0.3);
+  }
+  if (o.bow !== false) {
+    const s = Math.min(1.4, Math.max(0.6, Math.min(w, d) * 0.9)), bx = x0 + w / 2, bz = z0 + d / 2, by = y0 + h + 0.04 * s;
+    [-1, 1].forEach((k) => {
+      const lp = Sph(g, 0.14 * s, rm, bx + k * 0.15 * s, by + 0.04 * s, bz);
+      lp.scale.set(1, 0.55, 0.7);
+      lp.rotation.y = k * 0.5;
+      B(g, 0.07 * s, 0.025 * s, 0.26 * s, rm, bx + k * 0.06 * s, by, bz + 0.16 * s).rotation.y = k * 0.3;
+    });
+    Sph(g, 0.07 * s, rm, bx, by + 0.03 * s, bz);
+  }
+}
+const RIBBONS = { gold: "#F2C230", white: "#FFFFFF", silver: "#C9CED6", green: "#2E9E4F", red: "#C8102E" };
+regCustom("xgift", "Gift box", [
+  { key: "bw", label: "Width", kind: "num", min: 1, max: 3, step: 1, def: 1 },
+  { key: "bd", label: "Length", kind: "num", min: 1, max: 3, step: 1, def: 1 },
+  { key: "tall", label: "Height (layers)", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "ribbon", label: "Ribbon", kind: "sel", def: "gold", options: [["gold", "Gold"], ["white", "White"], ["silver", "Silver"], ["green", "Green"], ["red", "Red"]] },
+  { key: "pattern", label: "Wrapping", kind: "sel", def: "plain", options: [["plain", "Plain"], ["stripes", "Stripes"], ["dots", "Dots"]] },
+  { key: "bow", label: "Bow on top", kind: "tog", def: true },
+], (o) => ({ w: o.bw, d: o.bd, h: o.tall, top: !o.bow }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH - (o.bow ? 0.4 : 0.02);
+  giftBox(g, 0.06, 0, 0.06, o.bw - 0.12, H, o.bd - 0.12, c, RIBBONS[o.ribbon], { bow: o.bow, pattern: o.pattern });
+  return g;
+});
+regCustom("xgiftpile", "Pile of gifts", [
+  { key: "count", label: "Gifts", kind: "num", min: 3, max: 8, step: 1, def: 6 },
+], () => ({ w: 3, d: 3, h: 2, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const cols = [c, "#2E9E4F", "#2E6FD6", "#E8B923", "#8E44AD", "#F28C28", "#E8E8F0", "#C8102E"];
+  const ribs = ["#F2C230", "#FFFFFF", "#C8102E", "#FFFFFF", "#F2C230", "#2E6FD6", "#C8102E", "#F2C230"];
+  const spec = [
+    [0.15, 0, 0.2, 1.1, 0.8, 1.0], [1.45, 0, 0.35, 0.9, 0.7, 0.85], [0.3, 0, 1.55, 0.8, 0.6, 0.9], [1.7, 0, 1.6, 0.8, 0.9, 0.8],
+    [0.35, 0.8, 0.3, 0.8, 0.6, 0.7], [1.0, 0.7, 1.3, 0.6, 0.5, 0.6], [1.7, 0.7, 0.45, 0.6, 0.5, 0.5], [1.0, 0, 1.45, 0.55, 0.5, 0.55],
+  ];
+  spec.slice(0, o.count).forEach(([x, y, z, w, h, d], i) => giftBox(g, x, y, z, w, h, d, cols[i % cols.length], ribs[i % ribs.length], { bow: true, pattern: i % 3 === 1 ? "stripes" : "plain" }));
+  return g;
+});
+regCustom("xsack", "Santa's sack", [], () => ({ w: 2, d: 2, h: 2, top: false }), (c) => {
+  const g = new THREE.Group();
+  const sk = mat("#8B6B45", { roughness: 0.95 });
+  lathe(g, "xsack", [[0.001, 0], [0.5, 0.04], [0.78, 0.4], [0.8, 0.8], [0.66, 1.2], [0.34, 1.45], [0.22, 1.6], [0.3, 1.7], [0.001, 1.66]], sk, 1, 0, 1);
+  add(g, G(THREE.TorusGeometry, 0.24, 0.045, 8, 14), mat(c, { roughness: 0.7 }), 1, 1.52, 1).rotation.x = Math.PI / 2; // tied rope
+  giftBox(g, 0.62, 1.55, 0.7, 0.4, 0.38, 0.4, "#2E9E4F", "#FFD54A", { bow: false });
+  giftBox(g, 1.0, 1.52, 0.9, 0.36, 0.45, 0.36, "#2E6FD6", "#FFFFFF", { bow: false });
+  Cyl(g, 0.04, 0.04, 0.5, xRed, 0.95, 1.78, 1.05); // a candy cane poking out
+  Sph(g, 0.14, mat("#C49A6C"), 1.15, 1.8, 1.0); // teddy head
+  return g;
+});
+
+/* ----- candy canes ----- */
+regCustom("xcandycane", "Candy cane", [
+  { key: "tall", label: "Height (layers)", kind: "num", min: 1, max: 4, step: 1, def: 2 },
+  { key: "stripe", label: "Stripes", kind: "sel", def: "red", options: [["red", "Red and white"], ["green", "Green and white"], ["color", "Chosen color"]] },
+], (o) => ({ w: 1, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const col = o.stripe === "green" ? "#1F9A4A" : o.stripe === "color" ? c : "#D61F2F";
+  const a = mat(col, { roughness: 0.3 }), b = mat("#FFFFFF", { roughness: 0.3 });
+  const R = 0.28, cx = 0.3;
+  const poleH = o.tall * BH - 0.2 - R;
+  const n = Math.max(2, Math.round(poleH / 0.22));
+  for (let i = 0; i < n; i++) Cyl(g, 0.075, 0.075, poleH / n + 0.003, i % 2 ? b : a, cx, (i + 0.5) * (poleH / n), 0.5);
+  for (let k = 0; k < 6; k++) {
+    const t = add(g, G(THREE.TorusGeometry, R, 0.075, 8, 6, Math.PI / 6 + 0.02), k % 2 ? b : a, cx + R, poleH, 0.5);
+    t.rotation.z = k * (Math.PI / 6);
+  }
+  Sph(g, 0.075, a, cx + 2 * R, poleH - 0.03, 0.5);
+  return g;
+});
+
+/* ===================== Christmas: snow, cloud and the Christmas house ===================== */
+const snowX = mat("#FFFFFF", { roughness: 1, emissive: "#A9B7CC", emissiveIntensity: 0.4 });
+const iceX = mat("#CFEFFF", { transparent: true, opacity: 0.78, roughness: 0.1, metalness: 0.1, emissive: "#9FD6FF", emissiveIntensity: 0.25 });
+const snowFlake = mat("#FFFFFF", { roughness: 0.6, emissive: "#CFE4FF", emissiveIntensity: 0.35 });
+const rainM = mat("#9FD0F5", { transparent: true, opacity: 0.75, roughness: 0.2, emissive: "#5FA8E0", emissiveIntensity: 0.3 });
+const rwater = mat("#5FA8D8", { transparent: true, opacity: 0.72, roughness: 0.1, metalness: 0.1 });
+const snowLump = (g, x, y, z, rx, ry, rz) => Sph(g, 1, snowX, x, y, z).scale.set(rx, ry, rz);
+
+regCustom("xcloud", "Cloud", [
+  { key: "w", label: "Width", kind: "num", min: 3, max: 10, step: 1, def: 5 },
+  { key: "d", label: "Depth", kind: "num", min: 2, max: 6, step: 1, def: 3 },
+  { key: "tall", label: "Fall height", kind: "num", min: 2, max: 10, step: 1, def: 5 },
+  { key: "mood", label: "Weather", kind: "sel", def: "snow", options: [["snow", "Snowing"], ["rain", "Raining"], ["rainstorm", "Heavy rain (dark clouds)"], ["fluffy", "Fluffy, no precipitation"], ["storm", "Grey snow clouds"]] },
+], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d, H = o.tall * BH;
+  const dark = o.mood === "rainstorm", grey = o.mood === "storm" || o.mood === "rain";
+  const cm = dark ? mat("#6B7587", { roughness: 1 }) : grey ? mat("#B9C2CF", { roughness: 1 }) : mat("#FFFFFF", { roughness: 1 });
+  const cm2 = dark ? mat("#535C6C", { roughness: 1 }) : grey ? mat("#9AA5B5", { roughness: 1 }) : mat("#EEF3FA", { roughness: 1 });
+  const n = Math.round(W * D * 1.3);
+  for (let i = 0; i < n; i++) {
+    const x = 0.5 + rnd(i * 3 + 1) * (W - 1), z = 0.5 + rnd(i * 3 + 2) * (D - 1);
+    const edge = Math.min(x, W - x, z, D - z) / (Math.min(W, D) / 2);
+    const r = 0.3 + 0.28 * Math.min(1, edge + 0.3) * (0.6 + rnd(i * 3 + 3));
+    Sph(g, r, i % 3 ? cm : cm2, x, H - r * 0.85 - 0.02 - (1 - Math.min(1, edge)) * 0.15, z).scale.set(1.15, 0.8, 1.1);
+  }
+  if (o.mood === "rain" || o.mood === "rainstorm") {
+    const m = Math.min(90, Math.round(W * D * (dark ? 7 : 4)));
+    for (let i = 0; i < m; i++) {
+      const x = 0.4 + rnd(i * 5 + 11) * (W - 0.8), z = 0.4 + rnd(i * 5 + 12) * (D - 0.8);
+      falling(Cyl(g, 0.009, 0.009, 0.2, rainM, x, H, z), { x, z, top: H - 0.5, h: H - 0.5, speed: 0.55 + 0.35 * rnd(i * 5 + 9), sway: 0.015 }, rnd(i * 5 + 13));
+    }
+  } else if (o.mood !== "fluffy") {
+    const m = Math.min(70, Math.round(W * D * 4));
+    for (let i = 0; i < m; i++) {
+      const x = 0.4 + rnd(i * 5 + 11) * (W - 0.8), z = 0.4 + rnd(i * 5 + 12) * (D - 0.8);
+      const fl = Sph(g, 0.035 + 0.02 * rnd(i + 5), snowFlake, x, H, z);
+      falling(fl, { x, z, top: H - 0.55, h: H - 0.6, speed: 0.12 + 0.08 * rnd(i + 9), sway: 0.12 }, rnd(i * 5 + 13));
+    }
+  }
+  return g;
+});
+
+regCustom("xsnowfall", "Falling snow", [
+  { key: "w", label: "Width", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "d", label: "Depth", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "tall", label: "Height", kind: "num", min: 2, max: 12, step: 1, def: 5 },
+  { key: "dens", label: "Amount", kind: "sel", def: "med", options: [["light", "Light"], ["med", "Steady"], ["heavy", "Blizzard"]] },
+], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH, W = o.w, D = o.d;
+  const per = o.dens === "light" ? 3 : o.dens === "heavy" ? 9 : 5;
+  const n = Math.min(110, Math.round(W * D * per) + 6);
+  for (let i = 0; i < n; i++) {
+    const x = 0.1 + rnd(i * 4 + 1) * (W - 0.2), z = 0.1 + rnd(i * 4 + 2) * (D - 0.2);
+    const fl = Sph(g, 0.03 + 0.025 * rnd(i + 3), snowFlake, x, H, z);
+    falling(fl, { x, z, top: H - 0.05, h: H - 0.1, speed: 0.1 + 0.1 * rnd(i * 4 + 3), sway: 0.1 }, rnd(i * 4 + 4));
+  }
+  return g;
+});
+
+regCustom("xsnowmound", "Snow drift", [
+  { key: "w", label: "Width", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "d", label: "Depth", kind: "num", min: 1, max: 6, step: 1, def: 2 },
+  { key: "deep", label: "Depth of snow", kind: "sel", def: "mid", options: [["low", "Dusting"], ["mid", "Drift"], ["deep", "Deep"]] },
+], (o) => ({ w: o.w, d: o.d, h: o.deep === "deep" ? 2 : 1, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d;
+  const hh = o.deep === "deep" ? 2.2 : o.deep === "low" ? 0.4 : 1.0;
+  const lump = (x, z, t, rx, rz) => { const ry = t / 2; Sph(g, 1, snowX, x, ry, z).scale.set(rx, ry, rz); };
+  lump(W / 2, D / 2, hh * 0.8, W / 2 - 0.03, D / 2 - 0.03);
+  const n = Math.max(2, Math.round(W * D * 0.8));
+  for (let i = 0; i < n; i++) {
+    const x = 0.4 + rnd(i * 3 + 1) * (W - 0.8), z = 0.4 + rnd(i * 3 + 2) * (D - 0.8);
+    const e = Math.min(x, W - x, z, D - z);
+    lump(x, z, hh * (0.55 + 0.4 * rnd(i + 7)) * Math.min(1, e / 0.9), Math.min((0.3 + 0.3 * rnd(i * 3 + 3)) * 1.5, e), Math.min((0.3 + 0.3 * rnd(i * 3 + 3)) * 1.3, e));
+  }
+  return g;
+});
+
+regCustom("xsnowroof", "Snowy roof", [
+  { key: "w", label: "Length", kind: "num", min: 2, max: 12, step: 1, def: 6 },
+  { key: "d", label: "Width", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+  { key: "ice", label: "Icicles on the eaves", kind: "tog", def: true },
+  { key: "tile", label: "Roof under the snow", kind: "sel", def: "red", options: [["red", "Red tiles"], ["slate", "Slate"], ["wood", "Wooden shingles"]] },
+], (o) => ({ w: o.w, d: o.d, h: Math.max(2, Math.ceil(o.d / 2 / BH * 0.8)), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d;
+  const Hl = Math.max(2, Math.ceil(D / 2 / BH * 0.8)) * BH;
+  const e0 = 0.5, rise = Hl - 0.4;
+  const half = D / 2;
+  const slope = Math.hypot(half, rise - e0);
+  const ang = Math.atan2(rise - e0, half);
+  const tm = o.tile === "slate" ? mat("#4A5260", { roughness: 0.8 }) : o.tile === "wood" ? mat("#7A5632", { roughness: 0.9 }) : mat("#B4432E", { roughness: 0.8 });
+  [-1, 1].forEach((s) => {
+    const zc = half + s * (half / 2), yc = (rise + e0) / 2;
+    const roof = B(g, W, 0.14, slope, tm, W / 2, yc, zc);
+    roof.rotation.x = s * ang;
+    const snow = B(g, W - 0.04, 0.2, slope * 0.94, snowX, W / 2, yc + 0.1, zc);
+    snow.rotation.x = s * ang;
+    if (o.ice) {
+      for (let x = 0.25; x < W - 0.1; x += 0.4) {
+        const len = 0.15 + 0.3 * rnd(x * 10 + s);
+        Cone(g, 0.045, len, 6, iceX, x, e0 - len / 2 - 0.02, half + s * (half - 0.04)).rotation.x = Math.PI;
+      }
+    }
+  });
+  B(g, W - 0.02, 0.12, 0.26, snowX, W / 2, rise + 0.08, half); // the ridge cap
+  return g;
+});
+
+regCustom("xicicles", "Icicles", [
+  { key: "w", label: "Length", kind: "num", min: 1, max: 10, step: 1, def: 3 },
+  { key: "tall", label: "Hang height", kind: "num", min: 1, max: 3, step: 1, def: 1 },
+], (o) => ({ w: o.w, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, H = o.tall * BH;
+  B(g, W - 0.04, 0.1, 0.34, snowX, W / 2, H - 0.05, 0.5);
+  const n = Math.round(W * 3.2);
+  for (let i = 0; i < n; i++) {
+    const x = 0.14 + (i + 0.5 * rnd(i)) * ((W - 0.28) / n);
+    const len = Math.min(H - 0.12, 0.25 + 0.65 * rnd(i * 3 + 1) * (o.tall * 0.8 + 0.2));
+    const z = 0.5 + (rnd(i * 3 + 2) - 0.5) * 0.12;
+    Cone(g, 0.05 + 0.03 * rnd(i + 4), len, 7, iceX, x, H - 0.1 - len / 2, z).rotation.x = Math.PI;
+  }
+  return g;
+}, (o) => []);
+
+regCustom("xigloo", "Igloo", [
+  { key: "glow", label: "Glows inside", kind: "tog", def: true },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+], () => ({ w: 4, d: 5, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const R = 1.95, cx = 2, cz = 2;
+  const dome = add(g, G(THREE.SphereGeometry, R, 28, 14, 0, Math.PI * 2, 0, Math.PI / 2), snowX, cx, 0, cz);
+  dome.scale.set(1, 1.55, 1);
+  // block courses: rings and joints
+  const line = mat("#B6C7DA", { roughness: 0.9 });
+  [0.18, 0.4, 0.58, 0.74, 0.88].forEach((f, k) => {
+    const y = Math.sin(f * Math.PI / 2) * R * 1.55, r = Math.cos(f * Math.PI / 2) * R + 0.005;
+    add(g, G(THREE.TorusGeometry, r, 0.018, 4, 40), line, cx, y, cz).rotation.x = Math.PI / 2;
+  });
+  // entrance tunnel
+  const tl = add(g, G(THREE.CylinderGeometry, 0.8, 0.8, 1.4, 20, 1, false, Math.PI / 2, Math.PI), snowX, cx, 0.0, 3.7);
+  tl.rotation.set(Math.PI / 2, 0, 0);
+  const arch = add(g, G(THREE.CircleGeometry, 0.62, 18, 0, Math.PI), o.glow ? mat("#FFC36B", { emissive: "#FF9A2E", emissiveIntensity: 1.1 }) : mat("#25324A"), cx, 0.02, 4.4);
+  B(g, 1.24, 0.5, 0.02, o.glow ? mat("#FFC36B", { emissive: "#FF9A2E", emissiveIntensity: 1.1 }) : mat("#25324A"), cx, 0.25, 4.4);
+  // shadow-free dark ring
+  add(g, G(THREE.RingGeometry, 0.62, 0.78, 18, 1, 0, Math.PI), snowX, cx, 0.02, 4.4);
+  Sph(g, 0.14, snowX, cx - 1.1, 0.12, 4.5).scale.set(1.2, 0.8, 1);
+  Sph(g, 0.14, snowX, cx + 1.1, 0.12, 4.5).scale.set(1.2, 0.8, 1);
+  return g;
+}, (o) => (o.glow ? [{ kind: "point", pos: [0, 0.8, 1.6], power: o.intensity / 100, color: "#FFB35C", dist: 7 }] : []));
+
+regCustom("xgingerbread", "Gingerbread house", [
+  { key: "glow", label: "Window lights", kind: "tog", def: true },
+  { key: "intensity", label: "Light brightness (%)", kind: "num", min: 0, max: 100, step: 5, def: 70 },
+  { key: "snow", label: "Icing snow on roof", kind: "tog", def: true },
+], () => ({ w: 4, d: 4, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const ginger = mat("#9A5B2B", { roughness: 0.85 }), ginger2 = mat("#B97A3C", { roughness: 0.85 });
+  const ic = mat("#FFFFFF", { roughness: 0.5 });
+  const col = [c, "#2E9E4F", "#F2C230", "#2E6FD6", "#FF80AB"];
+  const wallH = 2.1;
+  B(g, 3.2, wallH, 2.8, ginger, 2, wallH / 2, 2);
+  B(g, 3.26, 0.08, 2.86, ic, 2, 0.04, 2); // icing base
+  // brick-like icing lines
+  for (let i = 1; i < 5; i++) B(g, 3.24, 0.03, 2.84, ic, 2, i * 0.4, 2).scale.set(1, 0.4, 1);
+  // gable roof along x, ends are triangular
+  const rise = 1.45, half = 1.7;
+  const sl = Math.hypot(half, rise), an = Math.atan2(rise, half);
+  [-1, 1].forEach((s) => {
+    B(g, 3.6, 0.16, sl + 0.05, ginger2, 2, wallH + rise / 2, 2 + s * half / 2).rotation.x = s * an;
+    if (o.snow) B(g, 3.64, 0.1, sl * 0.9, ic, 2, wallH + rise / 2 + 0.1, 2 + s * half / 2).rotation.x = s * an;
+    // gumdrops along the eaves
+    for (let k = 0; k < 7; k++) Sph(g, 0.09, mat(col[(k + (s > 0 ? 2 : 0)) % 5], { roughness: 0.3 }), 0.4 + k * 0.53, wallH + rise / 2 + 0.2 - (rnd(k + s) * 0.3), 2 + s * (half * 0.45 + rnd(k * 2) * 0.2)).scale.set(1, 0.7, 1);
+  });
+  [-1, 1].forEach((s) => add(g, G(THREE.CylinderGeometry, 0.001, 0.001, 0.01), ginger, 2 + s * 1.5, 0, 2)); // keeps extents even
+  Sph(g, 0.1, mat("#FF80AB", { roughness: 0.3 }), 2, wallH + rise + 0.1, 2);
+  // chimney
+  B(g, 0.45, 0.9, 0.45, mat("#B24A3A"), 3.1, wallH + 0.9, 1.4);
+  B(g, 0.5, 0.08, 0.5, ic, 3.1, wallH + 1.38, 1.4);
+  // door (front, +z)
+  B(g, 0.8, 1.3, 0.08, mat("#5A2D12"), 2, 0.65, 3.42);
+  [0.78, 0.9].forEach((w, i) => B(g, w + 0.0, 0.05, 0.1, ic, 2, 1.3 + 0.0, 3.43)); 
+  Sph(g, 0.06, brassM, 2.25, 0.65, 3.47);
+  [-0.55, 0.55].forEach((s) => { // door posts (candy canes)
+    for (let k = 0; k < 6; k++) Cyl(g, 0.06, 0.06, 0.24, k % 2 ? ic : mat("#D61F2F"), 2 + s * 0.9, 0.12 + k * 0.24, 3.46);
+  });
+  // windows
+  const wm = o.glow ? mat("#FFD27A", { emissive: "#FFA83A", emissiveIntensity: 1.2 }) : mat("#E8D9B0");
+  [[1.0, 3.42], [3.0, 3.42]].forEach(([x, z]) => {
+    B(g, 0.6, 0.6, 0.05, wm, x, 1.15, z);
+    B(g, 0.72, 0.06, 0.07, ic, x, 1.48, z); B(g, 0.72, 0.06, 0.07, ic, x, 0.82, z);
+    B(g, 0.06, 0.72, 0.07, ic, x - 0.3, 1.15, z); B(g, 0.06, 0.72, 0.07, ic, x + 0.3, 1.15, z);
+  });
+  // gumdrop path and candies in the front garden
+  for (let k = 0; k < 6; k++) Cyl(g, 0.12, 0.12, 0.05, mat(col[k % 5], { roughness: 0.3 }), 2 + (k % 2 ? 0.1 : -0.1), 0.03, 3.58 + k * 0.06);
+  [0.45, 3.55].forEach((x, i) => { // little lollipop trees
+    Cyl(g, 0.03, 0.03, 0.55, ic, x, 0.28, 3.7);
+    Sph(g, 0.22, mat(col[i ? 2 : 1], { roughness: 0.3 }), x, 0.7, 3.7);
+    Sph(g, 0.22, ic, x, 0.7, 3.7).scale.set(1.01, 0.12, 1.01);
+  });
+  return g;
+}, (o) => (o.glow ? [{ kind: "point", pos: [0, 1.15, 1.7], power: o.intensity / 100, color: "#FFB35C", dist: 6 }] : []));
+
+regCustom("xfireplace", "Fireplace", [
+  { key: "stock", label: "Stockings on the mantel", kind: "tog", def: true },
+  { key: "garland", label: "Garland on the mantel", kind: "tog", def: true },
+  { key: "fire", label: "Fire", kind: "sel", def: "burn", options: [["burn", "Burning"], ["out", "Unlit"]] },
+], () => ({ w: 4, d: 2, h: 4, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const brick = mat("#A5513C", { roughness: 0.9 }), brick2 = mat("#8C4332", { roughness: 0.9 });
+  const H = 4 * BH - 0.02;
+  // chimney breast of brick: two columns, lintel and the upper wall
+  [0.3, 3.7].forEach((x) => B(g, 0.6, H, 1.2, brick, x, H / 2, 0.7));
+  B(g, 2.8, 1.2, 1.2, brick, 2, 1.0 + 0.6 + 0.35 + 0.0, 0.7).scale.set(1, 0.001, 1);
+  B(g, 4, 1.15, 1.1, brick, 2, 1.55 + 0.575 + 0.05 + 0.0, 0.65).scale.set(1, 1, 1);
+  B(g, 3.4, 1.9, 0.9, brick, 2, H - 0.95, 0.55);
+  for (let r = 0; r < 12; r++) for (let k = 0; k < 4 - (r % 2); k++) B(g, 0.82, 0.04, 0.02, brick2, 0.65 + k * 0.9 + (r % 2) * 0.45, 0.36 + r * 0.38, 1.26).scale.set(1, 0.4, 1);
+  // firebox
+  B(g, 2.8, 1.3, 0.2, mat("#1E1A1A"), 2, 0.75, 0.2);
+  B(g, 2.8, 0.05, 1.2, mat("#2B2523"), 2, 0.05, 0.75);
+  // mantel and hearth
+  B(g, 4.0, 0.14, 1.5, darkWood, 2, 2.05 + 0.0, 0.9);
+  B(g, 4.0, 0.14, 1.9, mat("#5A5A60", { roughness: 0.8 }), 2, 0.07, 1.0);
+  // logs
+  [[-0.5, 0.2], [0.3, -0.15], [0.0, 0.5]].forEach(([dx, rz], i) => {
+    const lg = Cyl(g, 0.13, 0.13, 1.1, mat("#4A2E19", { roughness: 0.95 }), 2 + dx, 0.2 + i * 0.05, 0.7 + rz * 0.5);
+    lg.rotation.z = Math.PI / 2 + (i - 1) * 0.15;
+  });
+  if (o.fire === "burn") {
+    const fm = (col, k) => mat(col, { emissive: col, emissiveIntensity: k, transparent: true, opacity: 0.92 });
+    [[0, 0.36, "#FF6A1A", 0.34], [-0.35, 0.28, "#FF9A2E", 0.24], [0.38, 0.3, "#FF8A25", 0.26], [0.04, 0.22, "#FFD24A", 0.2]].forEach(([dx, h, col, r], i) => {
+      const f = Cone(g, r, h * 2.4, 8, fm(col, 1.6), 2 + dx, 0.35 + h * 1.2 - 0.0, 0.7);
+      flickering(f, i * 1.3);
+    });
+  } else Cyl(g, 0.3, 0.3, 0.04, mat("#3A3330"), 2, 0.12, 0.7);
+  if (o.garland) {
+    for (let i = 0; i < 18; i++) {
+      const x = 0.3 + i * 0.2;
+      Sph(g, 0.1, i % 2 ? pineD : pineL, x, 2.2 - 0.07 * Math.sin((i / 17) * Math.PI) * 1.4 + 0.07, 1.4).scale.set(1.1, 0.9, 0.9);
+      if (i % 3 === 1) Sph(g, 0.04, bulbMat(BULBC[i % 5], 1.3), x, 2.2 - 0.07 * Math.sin((i / 17) * Math.PI) * 1.4 + 0.0, 1.5);
+    }
+  }
+  if (o.stock) {
+    [0.9, 2.0, 3.1].forEach((x, i) => {
+      const pv = new THREE.Group();
+      pv.position.set(x, 2.0, 1.56);
+      g.add(pv);
+      B(pv, 0.22, 0.34, 0.1, i === 1 ? mat("#2E9E4F") : mat("#C8102E"), 0, -0.12, 0);
+      B(pv, 0.22, 0.09, 0.11, furW, 0, 0.07, 0);
+      B(pv, 0.26, 0.1, 0.1, i === 1 ? mat("#2E9E4F") : mat("#C8102E"), 0.04, -0.34, 0).rotation.z = 0.2;
+      swaying(pv, "z", 0.06, 1.4 + i * 0.2, i);
+    });
+  }
+  // a mantel clock-like candle pair
+  [0.55, 3.45].forEach((x) => { Cyl(g, 0.05, 0.05, 0.3, mat("#F6EBD0"), x, 2.27, 1.0); Cone(g, 0.035, 0.12, 6, mat("#FFC24A", { emissive: "#FF9A2E", emissiveIntensity: 1.5 }), x, 2.48, 1.0); });
+  return g;
+}, (o) => (o.fire === "burn" ? [{ kind: "point", pos: [0, 0.8, 0.9], power: 1.1, color: "#FF8A3A", dist: 9 }] : []));
+
+regCustom("xnativity", "Nativity scene", [
+  { key: "star", label: "Star glows", kind: "tog", def: true },
+], () => ({ w: 4, d: 3, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const wood = mat("#8A5A2F", { roughness: 0.9 }), thatch = mat("#C9A55A", { roughness: 1 });
+  B(g, 3.8, 0.1, 2.8, mat("#D8CDB0", { roughness: 1 }), 2, 0.05, 1.5); // straw floor
+  [[0.3, 0.4], [3.7, 0.4], [0.3, 2.4], [3.7, 2.4]].forEach(([x, z]) => B(g, 0.14, 2.4, 0.14, wood, x, 1.3, z));
+  // thatched roof
+  const sl = Math.hypot(1.5, 0.8), an = Math.atan2(0.8, 1.5);
+  [-1, 1].forEach((s) => B(g, 3.9, 0.2, 1.55, thatch, 2, 2.85, 1.5 + s * 0.75).rotation.x = s * 0.45);
+  B(g, 3.9, 0.14, 0.2, wood, 2, 3.2, 1.5);
+  B(g, 3.6, 2.4, 0.08, mat("#6A4423", { roughness: 0.9 }), 2, 1.3, 0.35).scale.set(1, 1, 1); // back wall boards
+  // manger
+  B(g, 0.9, 0.3, 0.45, wood, 2, 0.28, 1.5);
+  B(g, 0.78, 0.08, 0.34, mat("#E8D08A"), 2, 0.46, 1.5);
+  Sph(g, 0.1, mat("#FFFFFF"), 2, 0.58, 1.5); // wrapped baby
+  Sph(g, 0.07, skinM, 2.18, 0.58, 1.5);
+  // Mary, Joseph and a shepherd
+  const fig = (x, z, robe, h) => {
+    Cone(g, 0.22, h, 12, mat(robe), x, h / 2 + 0.05, z);
+    Sph(g, 0.11, skinM, x, h + 0.14, z);
+    Sph(g, 0.14, mat(robe, { roughness: 0.9 }), x, h + 0.16, z - 0.03).scale.set(1, 1, 0.9);
+    Sph(g, 0.115, skinM, x, h + 0.14, z + 0.04).scale.set(0.8, 0.9, 0.5);
+  };
+  fig(1.2, 1.9, "#2E6FD6", 0.9);
+  fig(2.9, 1.9, "#8A5A2F", 1.05);
+  fig(3.3, 1.2, "#7A3E8E", 0.8);
+  // ox, donkey and sheep
+  const sheep = (x, z) => { Sph(g, 0.17, furW, x, 0.28, z).scale.set(1.2, 0.9, 0.9); Sph(g, 0.07, black, x + 0.2, 0.33, z); [-1, 1].forEach((s) => Cyl(g, 0.02, 0.02, 0.15, black, x + s * 0.09, 0.12, z + 0.06)); };
+  sheep(0.9, 1.2); sheep(3.0, 0.9);
+  Sph(g, 0.28, mat("#8A8A92"), 0.8, 0.55, 0.9).scale.set(1.5, 0.9, 0.8);
+  Sph(g, 0.14, mat("#8A8A92"), 1.15, 0.7, 0.9);
+  [-1, 1].forEach((s) => Cyl(g, 0.04, 0.04, 0.4, mat("#7A7A82"), 0.7 + s * 0.2, 0.2, 0.9));
+  // star
+  const sm = o.star ? bulbMat("#FFE27A", 1.6) : mat("#E8C95A");
+  const st = add(g, starGeo(0.28, 0.12, 0.08), sm, 2, 3.35, 1.5);
+  pulsing(st, 0.12, 2, 0);
+  return g;
+}, (o) => (o.star ? [{ kind: "point", pos: [0, 2.4, 0], power: 0.7, color: "#FFE0A0", dist: 6 }] : []));
+
+regCustom("xxlamp", "Christmas lamp post", [
+  { key: "tall", label: "Height", kind: "num", min: 3, max: 8, step: 1, def: 5 },
+  { key: "wrap", label: "Candy stripes", kind: "tog", def: true },
+  { key: "wreath", label: "Wreath and bow", kind: "tog", def: true },
+  ...lightParams,
+], (o) => ({ w: 1, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH, cx = 0.5;
+  const pole = mat("#232A2E", { metalness: 0.5, roughness: 0.5 });
+  Cyl(g, 0.2, 0.26, 0.28, pole, cx, 0.14, cx);
+  Cyl(g, 0.1, 0.12, H - 1.2, pole, cx, 0.14 + (H - 1.2) / 2, cx);
+  if (o.wrap) {
+    const L = H - 1.4, n = Math.round(L / 0.2);
+    for (let i = 0; i < n; i++) Cyl(g, 0.125, 0.125, L / n * 0.55, i % 2 ? mat("#FFFFFF") : mat("#D61F2F"), cx, 0.4 + (i + 0.5) * (L / n), cx);
+  }
+  // lantern
+  const ly = H - 0.85;
+  Cyl(g, 0.17, 0.12, 0.1, pole, cx, ly, cx);
+  Cyl(g, 0.2, 0.15, 0.55, glowMat(o, c), cx, ly + 0.33, cx);
+  [0, 1, 2, 3].forEach((k) => B(g, 0.03, 0.55, 0.03, pole, cx + Math.cos(k * Math.PI / 2 + 0.78) * 0.17, ly + 0.33, cx + Math.sin(k * Math.PI / 2 + 0.78) * 0.17));
+  Cone(g, 0.3, 0.25, 4, pole, cx, ly + 0.73, cx).rotation.y = Math.PI / 4;
+  Sph(g, 0.05, brassM, cx, H - 0.0 - 0.0, cx);
+  if (o.wreath) {
+    add(g, G(THREE.TorusGeometry, 0.17, 0.06, 8, 16), pineD, cx, ly - 0.35, cx + 0.12);
+    bowAt(g, cx, ly - 0.55, cx + 0.22, 0.9);
+    [0, 1, 2, 3, 4].forEach((k) => Sph(g, 0.03, mat("#D61F2F"), cx + Math.cos(k * 1.3) * 0.17, ly - 0.35 + Math.sin(k * 1.3) * 0.17, cx + 0.2));
+  }
+  return g;
+}, (o, c) => ({ kind: "point", pos: [0, o.tall * BH - 0.55, 0], power: o.intensity / 100, color: toneOf(o, c), dist: 9 }));
+
+
+/* ===================== rain and water ===================== */
+regCustom("xrainfall", "Falling rain", [
+  { key: "w", label: "Width", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "d", label: "Depth", kind: "num", min: 1, max: 8, step: 1, def: 3 },
+  { key: "tall", label: "Height", kind: "num", min: 2, max: 12, step: 1, def: 5 },
+  { key: "dens", label: "Rain", kind: "sel", def: "med", options: [["drizzle", "Drizzle"], ["med", "Steady rain"], ["heavy", "Downpour"]] },
+], (o) => ({ w: o.w, d: o.d, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH, W = o.w, D = o.d;
+  const per = o.dens === "drizzle" ? 2.5 : o.dens === "heavy" ? 8 : 4.5;
+  const n = Math.min(120, Math.round(W * D * per) + 6);
+  const len = o.dens === "drizzle" ? 0.12 : 0.22;
+  for (let i = 0; i < n; i++) {
+    const x = 0.1 + rnd(i * 4 + 1) * (W - 0.2), z = 0.1 + rnd(i * 4 + 2) * (D - 0.2);
+    falling(Cyl(g, 0.009, 0.009, len, rainM, x, H, z), { x, z, top: H - len / 2, h: H - len, speed: (o.dens === "heavy" ? 0.8 : 0.55) + 0.3 * rnd(i * 4 + 3), sway: 0.01 }, rnd(i * 4 + 4));
+  }
+  return g;
+});
+
+regCustom("xpuddle", "Puddle", [
+  { key: "w", label: "Width", kind: "num", min: 1, max: 6, step: 1, def: 2 },
+  { key: "d", label: "Depth", kind: "num", min: 1, max: 6, step: 1, def: 2 },
+  { key: "ripple", label: "Raindrop ripples", kind: "tog", def: true },
+], (o) => ({ w: o.w, d: o.d, h: 0.25, top: true }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, D = o.d;
+  const pd = Cyl(g, 0.5, 0.5, 0.05, rwater, W / 2, 0.03, D / 2);
+  pd.scale.set(W - 0.1, 1, D - 0.1);
+  const edge = add(g, G(THREE.TorusGeometry, 0.5, 0.02, 4, 30), mat("#7B8FA3", { transparent: true, opacity: 0.55 }), W / 2, 0.035, D / 2);
+  edge.rotation.x = Math.PI / 2;
+  edge.scale.set(W - 0.1, D - 0.1, 1);
+  if (o.ripple) {
+    const n = Math.min(6, W * D + 1);
+    for (let i = 0; i < n; i++) {
+      const x = W * (0.25 + 0.5 * rnd(i * 2 + 1)), z = D * (0.25 + 0.5 * rnd(i * 2 + 2));
+      const r = add(g, G(THREE.TorusGeometry, 0.16, 0.012, 4, 20), mat("#EAF6FF", { transparent: true, opacity: 0.85 }), x, 0.065, z);
+      r.rotation.x = Math.PI / 2;
+      pulsing(r, 0.7, 2.2 + 0.5 * rnd(i), i * 1.9);
+    }
+  }
+  return g;
+});
+
+regCustom("xgutter", "Gutter and downpipe", [
+  { key: "len", label: "Gutter length", kind: "num", min: 2, max: 8, step: 1, def: 4 },
+  { key: "tall", label: "Height", kind: "num", min: 2, max: 8, step: 1, def: 3 },
+  { key: "water", label: "Rain water running", kind: "tog", def: true },
+  { key: "metal", label: "Material", kind: "sel", def: "grey", options: [["grey", "Grey"], ["white", "White"], ["copper", "Copper"], ["black", "Black"]] },
+], (o) => ({ w: o.len, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len, H = o.tall * BH;
+  const col = { grey: "#8A929C", white: "#F2F2F2", copper: "#B87333", black: "#2A2D31" }[o.metal];
+  const gm = mat(col, { metalness: 0.55, roughness: 0.4 });
+  const gy = H - 0.14;
+  B(g, L, 0.04, 0.24, gm, L / 2, gy - 0.1, 0.5);
+  B(g, L, 0.2, 0.03, gm, L / 2, gy, 0.38);
+  B(g, L, 0.14, 0.03, gm, L / 2, gy - 0.03, 0.62);
+  [0.3, L - 0.3].forEach((x) => B(g, 0.03, 0.2, 0.28, gm, x, gy, 0.5));
+  if (o.water) B(g, L - 0.3, 0.04, 0.18, rwater, L / 2, gy - 0.07, 0.5);
+  const px = L - 0.3;
+  Cyl(g, 0.1, 0.1, 0.05, gm, px, gy - 0.14, 0.5);
+  Cyl(g, 0.075, 0.075, gy - 0.3, gm, px, (gy - 0.3) / 2 + 0.08, 0.5);
+  [0.5, 1.0].forEach((k) => { if (k * 1.0 < gy) add(g, G(THREE.TorusGeometry, 0.08, 0.018, 4, 12), gm, px, k, 0.5).rotation.x = Math.PI / 2; });
+  const sh = Cyl(g, 0.075, 0.1, 0.18, gm, px + 0.06, 0.14, 0.5); sh.rotation.z = -0.5;
+  if (o.water) {
+    for (let i = 0; i < 6; i++) falling(Sph(g, 0.03, rwater, px, gy - 0.1, 0.5), { x: px, z: 0.5, top: gy - 0.1, h: gy - 0.25, speed: 0.5 + 0.2 * rnd(i), sway: 0 }, i / 6);
+    for (let i = 0; i < 4; i++) {
+      const x = 0.6 + (L - 1.4) * (i / 3);
+      falling(Sph(g, 0.025, rwater, x, gy - 0.12, 0.34), { x, z: 0.34, top: gy - 0.12, h: gy - 0.2, speed: 0.35 + 0.1 * rnd(i + 3), sway: 0 }, rnd(i * 3 + 1));
+    }
+  }
+  return g;
+});
+
+regCustom("xrainbarrel", "Rain barrel", [
+  { key: "tall", label: "Downpipe height", kind: "num", min: 2, max: 5, step: 1, def: 3 },
+  { key: "style", label: "Barrel", kind: "sel", def: "wood", options: [["wood", "Wooden barrel"], ["plastic", "Green plastic tank"], ["steel", "Steel drum"]] },
+  { key: "water", label: "Water running in", kind: "tog", def: true },
+], (o) => ({ w: 2, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const H = o.tall * BH;
+  const body = o.style === "wood" ? mat("#8A5A2F", { roughness: 0.85 }) : o.style === "plastic" ? mat("#2F7D4B", { roughness: 0.6 }) : mat("#5B6B7B", { metalness: 0.6, roughness: 0.4 });
+  const hoop = o.style === "wood" ? mat("#2B2B2E", { metalness: 0.7, roughness: 0.4 }) : mat(shade(o.style === "plastic" ? "#2F7D4B" : "#5B6B7B", 0.75), { roughness: 0.6 });
+  const bx = 0.62, bz = 0.5, R = 0.42, BHt = 1.0;
+  Cyl(g, R * 0.93, R * 0.93, BHt, body, bx, BHt / 2, bz);
+  if (o.style === "wood") add(g, G(THREE.CylinderGeometry, R, R, BHt * 0.6, 20), body, bx, BHt / 2, bz);
+  [0.12, 0.42, 0.62, 0.9].forEach((y) => Cyl(g, R * (o.style === "wood" ? 1.01 : 0.95), R * (o.style === "wood" ? 1.01 : 0.95), 0.04, hoop, bx, y, bz));
+  Cyl(g, R * 0.9, R * 0.9, 0.04, body, bx, BHt, bz);
+  Cyl(g, R * 0.7, R * 0.7, 0.03, rwater, bx, BHt + 0.0, bz);
+  Cyl(g, 0.05, 0.05, 0.14, brassM, bx - R - 0.02, 0.22, bz).rotation.z = Math.PI / 2; // tap
+  // downpipe from the roof edge into the barrel
+  const px = 1.5, gm = mat("#8A929C", { metalness: 0.55, roughness: 0.4 });
+  Cyl(g, 0.07, 0.07, H - BHt - 0.06, gm, bx, BHt + (H - BHt) / 2 + 0.0, 0.1 + 0.0);
+  Cyl(g, 0.07, 0.07, 0.01, gm, bx, H - 0.02, 0.1);
+  tube(g, [bx, BHt + 0.05, 0.1], [bx, BHt + 0.05, bz], 0.07, gm);
+  if (o.water) for (let i = 0; i < 5; i++) falling(Sph(g, 0.028, rwater, bx, H - 0.2, 0.1), { x: bx, z: 0.1, top: H - 0.2, h: H - BHt - 0.3, speed: 0.5 + 0.1 * rnd(i), sway: 0 }, i / 5);
+  // a little watering can beside it
+  Cyl(g, 0.13, 0.13, 0.2, mat("#3D8FD6", { metalness: 0.4, roughness: 0.4 }), px + 0.1, 0.1, bz);
+  tube(g, [px + 0.2, 0.1, bz], [px + 0.42, 0.32, bz], 0.02, mat("#3D8FD6"));
+  return g;
+});
+
+regCustom("xumbrella", "Umbrella", [
+  { key: "size", label: "Size", kind: "sel", def: "large", options: [["small", "Hand umbrella"], ["large", "Garden parasol"]] },
+  { key: "open", label: "Open", kind: "tog", def: true },
+], (o) => (o.size === "small" ? { w: 2, d: 2, h: 2, top: false } : { w: 4, d: 4, h: 3, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const big = o.size === "large";
+  const S = big ? 4 : 2, cx = S / 2, R = big ? 1.9 : 0.9, H = (big ? 3 : 2) * BH - 0.05;
+  const pole = mat("#E8E2D6", { roughness: 0.5 });
+  const cm = mat(c, { roughness: 0.7, side: THREE.DoubleSide });
+  const white = mat("#FFFFFF", { roughness: 0.7, side: THREE.DoubleSide });
+  const ph = H - (big ? 0.55 : 0.4);
+  Cyl(g, 0.04, 0.04, ph, pole, cx, ph / 2, cx);
+  if (big) { Cyl(g, 0.45, 0.5, 0.12, mat("#9AA0A6", { roughness: 0.7 }), cx, 0.06, cx); }
+  else { Cyl(g, 0.05, 0.05, 0.3, mat("#5A3A1E"), cx, 0.15, cx); }
+  if (o.open) {
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      const wedge = add(g, G(THREE.SphereGeometry, R, 8, 8, (i / n) * Math.PI * 2, (Math.PI * 2) / n, 0, Math.PI / 2.6), i % 2 ? white : cm, cx, ph - 0.2, cx);
+      wedge.scale.set(1, 0.5, 1);
+    }
+    Cyl(g, 0.05, 0.05, 0.12, pole, cx, ph + 0.28, cx);
+  } else {
+    Cone(g, big ? 0.35 : 0.2, big ? 1.8 : 0.9, 8, cm, cx, ph - 0.6, cx);
+  }
+  return g;
+});
+
+regCustom("xrainbow", "Rainbow", [
+  { key: "w", label: "Width", kind: "num", min: 6, max: 16, step: 1, def: 10 },
+  { key: "clouds", label: "Clouds at the ends", kind: "tog", def: true },
+], (o) => ({ w: o.w, d: 1, h: Math.ceil((o.w / 2 - 0.1) / BH), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.w, R0 = W / 2 - 0.5;
+  const cols = ["#E53935", "#FB8C00", "#FDD835", "#43A047", "#1E88E5", "#3949AB", "#8E24AA"];
+  cols.forEach((col, i) => {
+    const r = R0 - i * 0.13;
+    const t = add(g, G(THREE.TorusGeometry, r, 0.07, 6, 48, Math.PI), mat(col, { transparent: true, opacity: 0.88, emissive: col, emissiveIntensity: 0.3, roughness: 0.6 }), W / 2, 0.0, 0.5);
+    t.scale.z = 0.5;
+  });
+  if (o.clouds) [0.55, W - 0.55].forEach((x, k) => {
+    [[-0.2, 0.12, 0.3], [0.15, 0.1, 0.32], [0.0, 0.3, 0.26], [-0.45 * (k ? -1 : 1), 0.08, 0.2]].forEach(([dx, y, r], j) => Sph(g, r, j % 2 ? mat("#FFFFFF", { roughness: 1 }) : mat("#EEF3FA", { roughness: 1 }), x + dx * (k ? -1 : 1), y + 0.15, 0.5).scale.set(1.1, 0.8, 0.9));
+  });
+  return g;
+});
+
+
+/* ===================== arches, boundary walls and main gates ===================== */
+const archGeos = new Map();
+// the outline of an arch opening, left to right: [x, y] with y = height above the spring line
+const archProfile = (shape, span, n = 14) => {
+  const pts = [];
+  let rise = 0;
+  if (shape === "round") rise = span / 2;
+  else if (shape === "pointed") rise = Math.sqrt(span * span - (span / 2) ** 2);
+  else if (shape === "segmental") rise = span * 0.2;
+  const Rc = (span * span / 4 + rise * rise) / (2 * Math.max(rise, 0.001));
+  for (let i = 0; i <= n; i++) {
+    const x = (span * i) / n;
+    let y = 0;
+    if (shape === "round") y = Math.sqrt(Math.max(0, (span / 2) ** 2 - (x - span / 2) ** 2));
+    else if (shape === "pointed") y = x <= span / 2 ? Math.sqrt(Math.max(0, span * span - (x - span) ** 2)) : Math.sqrt(Math.max(0, span * span - x * x));
+    else if (shape === "segmental") y = rise - Rc + Math.sqrt(Math.max(0, Rc * Rc - (x - span / 2) ** 2));
+    pts.push([x, Math.max(0, y)]);
+  }
+  return { pts, rise };
+};
+const archCrownGeo = (shape, span, T, depth) => {
+  const key = `${shape}|${span}|${T.toFixed(2)}|${depth}`;
+  if (!archGeos.has(key)) {
+    const { pts } = archProfile(shape, span);
+    const s = new THREE.Shape();
+    s.moveTo(0, 0);
+    s.lineTo(0, T);
+    s.lineTo(span, T);
+    s.lineTo(span, 0);
+    for (let i = pts.length - 2; i >= 1; i--) s.lineTo(pts[i][0], pts[i][1]);
+    archGeos.set(key, new THREE.ExtrudeGeometry(s, { depth, bevelEnabled: false }));
+  }
+  return archGeos.get(key);
+};
+const WALL_MATS = {
+  stone: { c: "#B3AEA2", line: "#7E7A70", trim: "#D2CEC2" },
+  brick: { c: "#A9503A", line: "#DCD2C2", trim: "#C46A4E" },
+  sandstone: { c: "#C99A6B", line: "#9A7048", trim: "#E3BE90" },
+  marble: { c: "#EDEAE2", line: "#B9B4A8", trim: "#FFFFFF" },
+  color: null,
+};
+const wallMatOf = (style, c) => {
+  const s = WALL_MATS[style] || { c, line: shade(c, 0.7), trim: shade(c, 1.15) };
+  return { body: mat(s.c, { roughness: 0.9 }), line: mat(s.line, { roughness: 1 }), trim: mat(s.trim, { roughness: 0.8 }), base: mat(shade(s.c, 0.82), { roughness: 0.95 }) };
+};
+const MAT_OPTS = [["stone", "Grey stone"], ["brick", "Red brick"], ["sandstone", "Sandstone"], ["marble", "White marble"], ["color", "Chosen color"]];
+// thin joint lines over a face: rows run the full length, the joints are staggered
+function jointLines(g, x0, x1, y0, y1, zs, m, rowH, jointW, cap = 110) {
+  const rows = Math.max(1, Math.round((y1 - y0) / rowH));
+  const rh = (y1 - y0) / rows;
+  const per = Math.max(1, Math.round((x1 - x0) / jointW));
+  const joints = per * rows * zs.length <= cap;
+  for (let r = 1; r < rows; r++) zs.forEach((z) => B(g, x1 - x0, 0.022, 0.012, m, (x0 + x1) / 2, y0 + r * rh, z));
+  if (joints)
+    for (let r = 0; r < rows; r++)
+      for (let k = 1 + (r % 2 ? 0 : 0); k < per; k++) {
+        const x = x0 + (k + (r % 2 ? 0.5 : 0)) * ((x1 - x0) / per);
+        if (x < x1 - 0.05) zs.forEach((z) => B(g, 0.02, rh, 0.012, m, x, y0 + (r + 0.5) * rh, z));
+      }
+}
+
+const archNeeds = (o) => {
+  const rise = archProfile(o.shape, o.span).rise;
+  return Math.max(o.tall, Math.ceil((2.5 + rise + 0.62) / BH));
+};
+regCustom("xarch", "Arch and arcade", [
+  { key: "span", label: "Opening width", kind: "num", min: 2, max: 6, step: 1, def: 4 },
+  { key: "count", label: "Arches in a row", kind: "num", min: 1, max: 4, step: 1, def: 1 },
+  { key: "tall", label: "Height (layers, grows to fit)", kind: "num", min: 3, max: 10, step: 1, def: 4 },
+  { key: "shape", label: "Shape", kind: "sel", def: "round", options: [["round", "Round (Roman)"], ["pointed", "Pointed (Gothic)"], ["segmental", "Shallow (segmental)"], ["flat", "Flat lintel"]] },
+  { key: "pier", label: "Pillar thickness", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "thick", label: "Wall thickness", kind: "num", min: 1, max: 2, step: 1, def: 1 },
+  { key: "mat", label: "Material", kind: "sel", def: "stone", options: MAT_OPTS },
+  { key: "key", label: "Keystone", kind: "tog", def: true },
+  { key: "gate", label: "Gate in the opening", kind: "sel", def: "none", options: [["none", "None"], ["iron", "Iron gate (closed)"], ["ironopen", "Iron gate (ajar)"]] },
+], (o) => ({ w: o.count * o.span + (o.count + 1) * o.pier, d: o.thick, h: archNeeds(o), top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const { rise } = archProfile(o.shape, o.span);
+  const H = archNeeds(o) * BH, W = o.count * o.span + (o.count + 1) * o.pier, Dp = o.thick;
+  const M = wallMatOf(o.mat, c);
+  const dep = Dp - 0.08, zc = Dp / 2;
+  const capH = 0.14;
+  const spring = H - capH - rise - 0.5;
+  const T = H - capH - spring;
+  const zf = [zc - dep / 2 - 0.004, zc + dep / 2 + 0.004];
+  for (let p = 0; p <= o.count; p++) {
+    const x0 = p * (o.span + o.pier);
+    B(g, o.pier, H - capH, dep, M.body, x0 + o.pier / 2, (H - capH) / 2, zc);
+    B(g, o.pier, 0.24, dep + 0.06, M.base, x0 + o.pier / 2, 0.12, zc);
+    B(g, o.pier, 0.1, dep + 0.08, M.trim, x0 + o.pier / 2, spring - 0.05, zc); // impost block at the spring line
+    if (o.mat !== "color" && o.mat !== "marble") jointLines(g, x0 + 0.03, x0 + o.pier - 0.03, 0.3, spring - 0.1, zf, M.line, 0.5, 0.6, 12);
+  }
+  for (let i = 0; i < o.count; i++) {
+    const x0 = o.pier + i * (o.span + o.pier);
+    const crown = add(g, archCrownGeo(o.shape, o.span, T, dep), M.body, x0, spring, zc - dep / 2);
+    const { pts } = archProfile(o.shape, o.span);
+    if (o.shape !== "flat") {
+      for (let k = 0; k < pts.length - 1; k++) zf.forEach((z) => tube(g, [x0 + pts[k][0], spring + pts[k][1] + 0.02, z], [x0 + pts[k + 1][0], spring + pts[k + 1][1] + 0.02, z], 0.045, M.trim));
+      if (o.key) B(g, 0.26, 0.38, dep + 0.1, M.trim, x0 + o.span / 2, spring + rise - 0.1, zc);
+    } else {
+      B(g, o.span + 0.1, 0.2, dep + 0.08, M.trim, x0 + o.span / 2, spring + 0.1, zc);
+      if (o.key) B(g, 0.28, 0.2, dep + 0.1, M.trim, x0 + o.span / 2, spring + 0.1, zc);
+    }
+    if (o.mat !== "color" && o.mat !== "marble") jointLines(g, x0 + 0.05, x0 + o.span - 0.05, spring + rise + 0.12, H - capH - 0.04, zf, M.line, 0.5, 0.6, 16);
+    // gate leaves up to the spring line
+    if (o.gate !== "none") {
+      const iron = mat("#1E2226", { metalness: 0.6, roughness: 0.45 });
+      const lw = o.span / 2 - 0.04, lh = spring - 0.18;
+      [-1, 1].forEach((s) => {
+        const pv = new THREE.Group();
+        pv.position.set(s < 0 ? x0 + 0.02 : x0 + o.span - 0.02, 0.1, zc);
+        g.add(pv);
+        const dir = s < 0 ? 1 : -1;
+        const nb = Math.max(3, Math.round(lw / 0.4));
+        for (let b = 0; b <= nb; b++) B(pv, 0.03, lh, 0.03, iron, dir * (0.03 + (b / nb) * (lw - 0.06)), lh / 2, 0);
+        [0.08, lh * 0.5, lh - 0.05].forEach((y) => B(pv, lw, 0.05, 0.04, iron, dir * lw / 2, y, 0));
+        for (let b = 0; b <= nb; b += 2) Cone(pv, 0.03, 0.12, 4, iron, dir * (0.03 + (b / nb) * (lw - 0.06)), lh + 0.05, 0);
+        if (o.gate === "ironopen") pv.rotation.y = dir * Math.asin(Math.min(1, 0.4 / lw)) * (s < 0 ? -1 : -1);
+      });
+    }
+  }
+  B(g, W, capH, Dp - 0.02, M.trim, W / 2, H - capH / 2, zc); // coping
+  return g;
+});
+
+regCustom("xwall", "Boundary wall", [
+  { key: "len", label: "Length", kind: "num", min: 2, max: 16, step: 1, def: 8 },
+  { key: "tall", label: "Height (layers)", kind: "num", min: 1, max: 4, step: 1, def: 2 },
+  { key: "style", label: "Style", kind: "sel", def: "plain", options: [["plain", "Plastered compound wall"], ["brick", "Brick"], ["stone", "Stone blocks"], ["jali", "Wall with jali (lattice) panels"], ["grille", "Low wall with iron grille"]] },
+  { key: "pillar", label: "Pillars", kind: "sel", def: "4", options: [["none", "No pillars"], ["ends", "At the ends only"], ["4", "Every 4 studs"], ["6", "Every 6 studs"]] },
+  { key: "cap", label: "Top", kind: "sel", def: "flat", options: [["none", "Plain"], ["flat", "Flat coping"], ["tiled", "Tiled coping"], ["spikes", "Spikes"]] },
+  { key: "thick", label: "Thickness", kind: "sel", def: "thin", options: [["thin", "Thin"], ["thick", "Thick"]] },
+], (o) => ({ w: o.len, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const L = o.len, H = o.tall * BH, t = o.thick === "thick" ? 0.8 : 0.5, zc = 0.5;
+  const M = wallMatOf(o.style === "brick" ? "brick" : o.style === "stone" ? "stone" : "color", c);
+  const iron = mat("#1E2226", { metalness: 0.6, roughness: 0.45 });
+  const pw = Math.max(0.62, t + 0.14);
+  const pil = o.pillar === "none" ? [] : (() => {
+    const xs = [pw / 2, L - pw / 2];
+    if (o.pillar !== "ends") { const sp = Number(o.pillar); for (let x = sp; x < L - pw; x += sp) xs.push(x); }
+    return xs;
+  })();
+  const ch = { none: 0, flat: 0.12, tiled: 0.24, spikes: 0.3 }[o.cap];
+  const top = pil.length ? H - 0.3 : H; // top of the wall itself, pillars stand a little higher
+  const bodyH = Math.max(0.3, top - ch);
+  const faces = [zc - t / 2 - 0.004, zc + t / 2 + 0.004];
+  const openStyle = o.style === "jali" || o.style === "grille";
+  const baseH = o.style === "grille" ? Math.min(0.55, bodyH * 0.5) : o.style === "jali" ? Math.min(0.9, bodyH * 0.45) : bodyH;
+  // wall body
+  B(g, L - 0.02, baseH, t, M.body, L / 2, baseH / 2, zc);
+  B(g, L - 0.02 + 0.04, 0.22, t + 0.06, M.base, L / 2, 0.11, zc);
+  if (o.style === "plain") [0.32, bodyH - 0.2].forEach((y, i) => B(g, L - 0.04, i ? 0.08 : 0.04, t + 0.02, M.trim, L / 2, y, zc));
+  if (o.style === "brick") jointLines(g, 0.1, L - 0.1, 0.22, bodyH, faces, M.line, 0.3, 0.6, 120);
+  if (o.style === "stone") jointLines(g, 0.1, L - 0.1, 0.22, bodyH, faces, M.line, Math.max(0.4, bodyH / 6), 1.1, 90);
+  if (openStyle) {
+    const y0 = baseH, y1 = bodyH;
+    B(g, L - 0.02, 0.1, t + 0.04, M.trim, L / 2, y0 + 0.05, zc); // sill
+    if (o.style === "jali") {
+      B(g, L - 0.02, 0.1, t, M.body, L / 2, y1 - 0.05, zc);
+      for (let y = y0 + 0.3; y < y1 - 0.1; y += 0.28) B(g, L - 0.04, 0.04, 0.06, M.trim, L / 2, y, zc);
+      const nv = Math.min(60, Math.round(L / 0.28));
+      for (let k = 1; k < nv; k++) B(g, 0.04, y1 - y0 - 0.1, 0.06, M.trim, (k / nv) * L, (y0 + y1) / 2 - 0.0, zc);
+    } else {
+      [y0 + 0.12, y1 - 0.06].forEach((y) => B(g, L - 0.04, 0.05, 0.05, iron, L / 2, y, zc));
+      const nv = Math.min(70, Math.round(L / 0.3));
+      for (let k = 1; k < nv; k++) {
+        const x = (k / nv) * L;
+        B(g, 0.03, y1 - y0, 0.03, iron, x, (y0 + y1) / 2, zc);
+        Cone(g, 0.035, 0.12, 4, iron, x, y1 + 0.04, zc);
+      }
+    }
+  }
+  // top
+  if (o.cap === "flat") B(g, L, ch, t + 0.12, M.trim, L / 2, top - ch / 2, zc);
+  else if (o.cap === "tiled") [-1, 1].forEach((s) => B(g, L, 0.06, t / 2 + 0.14, mat("#B4432E", { roughness: 0.8 }), L / 2, top - 0.1, zc + s * (t / 4 + 0.02)).rotation.x = s * 0.5);
+  else if (o.cap === "spikes") {
+    B(g, L, 0.1, t + 0.06, iron, L / 2, top - ch + 0.05, zc);
+    for (let x = 0.2; x < L; x += 0.32) Cone(g, 0.04, 0.2, 4, iron, x, top - 0.1, zc);
+  }
+  // pillars
+  pil.forEach((x) => {
+    B(g, pw, H - 0.26, pw, M.body, x, (H - 0.26) / 2, zc);
+    B(g, pw + 0.1, 0.26, pw + 0.1, M.base, x, 0.13, zc);
+    [0.45, H - 0.38].forEach((y, i) => { if (y > 0.4) B(g, pw + 0.04, 0.06, pw + 0.04, M.trim, x, y, zc); });
+    B(g, pw + 0.12, 0.08, pw + 0.12, M.trim, x, H - 0.22, zc);
+    Cone(g, pw * 0.72, 0.18, 4, M.trim, x, H - 0.09, zc).rotation.y = Math.PI / 4;
+    if (o.style === "brick" || o.style === "stone") jointLines(g, x - pw / 2 + 0.02, x + pw / 2 - 0.02, 0.3, H - 0.4, [zc - pw / 2 - 0.004, zc + pw / 2 + 0.004], M.line, 0.3, 0.5, 20);
+  });
+  return g;
+});
+
+regCustom("xgatemain", "Main gate with pillars", [
+  { key: "span", label: "Gate opening", kind: "num", min: 3, max: 6, step: 1, def: 4 },
+  { key: "tall", label: "Pillar height (layers)", kind: "num", min: 3, max: 6, step: 1, def: 4 },
+  { key: "leaf", label: "Gate", kind: "sel", def: "iron", options: [["iron", "Iron gate"], ["wood", "Wooden double door"], ["none", "Open (no gate)"]] },
+  { key: "open", label: "Gate ajar", kind: "tog", def: false },
+  { key: "mat", label: "Pillars", kind: "sel", def: "brick", options: MAT_OPTS },
+  { key: "arch", label: "Arch across the top", kind: "tog", def: false },
+  { key: "lamp", label: "Lamps on the pillars", kind: "tog", def: true },
+  ...lightParams,
+], (o) => ({ w: o.span + 2, d: 1, h: o.tall, top: false }), (c, o) => {
+  const g = new THREE.Group();
+  const W = o.span + 2, H = o.tall * BH, zc = 0.5, pw = 0.86;
+  const M = wallMatOf(o.mat, c);
+  const iron = mat("#1E2226", { metalness: 0.6, roughness: 0.45 });
+  const lampTop = o.lamp ? 0.5 : 0.2;
+  const ph = H - lampTop;
+  [0.5, W - 0.5].forEach((x) => {
+    B(g, pw, ph - 0.12, pw, M.body, x, (ph - 0.12) / 2, zc);
+    B(g, pw + 0.12, 0.3, pw + 0.12, M.base, x, 0.15, zc);
+    B(g, pw + 0.06, 0.08, pw + 0.06, M.trim, x, ph * 0.45, zc);
+    B(g, pw + 0.14, 0.12, pw + 0.14, M.trim, x, ph - 0.06, zc);
+    if (o.mat === "brick" || o.mat === "stone" || o.mat === "sandstone") jointLines(g, x - pw / 2 + 0.03, x + pw / 2 - 0.03, 0.35, ph - 0.2, [zc - pw / 2 - 0.004, zc + pw / 2 + 0.004], M.line, 0.35, 0.45, 30);
+    if (o.lamp) {
+      Cyl(g, 0.17, 0.2, 0.06, iron, x, ph + 0.03, zc);
+      Cyl(g, 0.15, 0.12, 0.26, glowMat(o, c), x, ph + 0.19, zc);
+      Cone(g, 0.2, 0.14, 4, iron, x, ph + 0.39, zc).rotation.y = Math.PI / 4;
+    } else Cone(g, 0.6, 0.2, 4, M.trim, x, ph + 0.1, zc).rotation.y = Math.PI / 4;
+  });
+  const gx0 = 1.0, gx1 = W - 1.0;
+  if (o.arch) {
+    const ah = 0.3;
+    B(g, W - 0.0, ah, 0.5, M.body, W / 2, ph - ah / 2, zc);
+    B(g, W, 0.08, 0.58, M.trim, W / 2, ph - ah - 0.02, zc);
+  }
+  const top = (o.arch ? ph - 0.38 : ph - 0.35);
+  if (o.leaf !== "none") {
+    const lw = (gx1 - gx0) / 2 - 0.02, lh = Math.min(top - 0.1, H * 0.62);
+    [-1, 1].forEach((s) => {
+      const pv = new THREE.Group();
+      pv.position.set(s < 0 ? gx0 + 0.02 : gx1 - 0.02, 0.1, zc);
+      g.add(pv);
+      const dir = s < 0 ? 1 : -1;
+      if (o.leaf === "iron") {
+        const nb = Math.max(4, Math.round(lw / 0.2));
+        for (let b = 0; b <= nb; b++) B(pv, 0.03, lh, 0.03, iron, dir * (0.03 + (b / nb) * (lw - 0.06)), lh / 2, 0);
+        [0.1, lh * 0.45, lh - 0.04].forEach((y) => B(pv, lw, 0.06, 0.05, iron, dir * lw / 2, y, 0));
+        for (let b = 0; b <= nb; b += 2) Cone(pv, 0.035, 0.14, 4, iron, dir * (0.03 + (b / nb) * (lw - 0.06)), lh + 0.06, 0);
+        Cyl(pv, 0.15, 0.15, 0.04, brassM, dir * lw / 2, lh * 0.7, 0.03).rotation.x = Math.PI / 2;
+      } else {
+        const wd = mat("#6A4423", { roughness: 0.8 });
+        B(pv, lw, lh, 0.08, wd, dir * lw / 2, lh / 2, 0);
+        for (let b = 1; b < 5; b++) B(pv, 0.015, lh, 0.09, mat("#4A2E19"), dir * (b / 5) * lw, lh / 2, 0);
+        [0.3, lh - 0.3].forEach((y) => B(pv, lw - 0.1, 0.07, 0.1, iron, dir * lw / 2, y, 0));
+        Sph(pv, 0.05, brassM, dir * (lw - 0.12), lh * 0.5, 0.07);
+      }
+      if (o.open) pv.rotation.y = -dir * Math.asin(Math.min(1, 0.4 / lw));
+    });
+  }
+  B(g, gx1 - gx0, 0.05, 0.8, mat("#7C7F86", { roughness: 0.9 }), W / 2, 0.025, zc); // threshold
+  return g;
+}, (o, c) => {
+  if (!o.lamp) return [];
+  const y = o.tall * BH - 0.35, k = o.intensity / 100;
+  return [[-(o.span + 2) / 2 + 0.5], [(o.span + 2) / 2 - 0.5]].map(([x]) => ({ kind: "point", pos: [x, y, 0], power: k * 0.7, color: toneOf(o, c), dist: 6 }));
+});
+
 export const GROUPS = [
   { title: "Bricks", keys: ["b1x1", "b1x2", "b1x3", "b1x4", "b2x2", "b2x3", "b2x4"] },
   { title: "Flat bricks (smooth top)", keys: ["f1x1", "f1x2", "f1x3", "f1x4", "f2x2", "f2x3", "f2x4"] },
@@ -5328,6 +6810,7 @@ export const GROUPS = [
   { title: "Flowering plants", keys: ["rose", "tulips", "lavender", "daisies", "orchid", "hibiscus", "marigold", "lotus", "bougainvillea", "hangbasket", "flowergarden", "meadow", "planter"] },
   { title: "Plants and stones", keys: ["pot", "bush", "flowers", "sunflower", "cactus", "grass", "hedge", "stone", "boulder"] },
   { title: "Outdoor", keys: ["bench", "picnic", "lounger", "patio", "lamppost", "bbq", "fountain", "mailbox", "bin"] },
+  { title: "Arches and boundary walls", keys: ["xarch", "xwall", "xgatemain"] },
   { title: "Fences and gates", keys: ["fence2", "fence", "panelfence", "ironfence", "meshfence", "gate2", "gate4", "gateopen"] },
   { title: "Roof rails", keys: ["roofrail2", "roofrail4", "railcorner", "glassrail"] },
   { title: "Lounge chairs and benches", keys: ["recliner", "plantersChair", "sunlounger", "rockingchair", "chaise", "eggchair", "beanbag", "porchbench", "porchswing"] },
@@ -5344,6 +6827,12 @@ export const GROUPS = [
   { title: "People", keys: ["person", "worker", "woman", "man", "child", "chef", "doctor", "police", "farmer"] },
   { title: "Pets", keys: ["dog", "cat", "rabbit", "parrot", "fishbowl"] },
   { title: "Animals", keys: ["horse", "cow", "sheep", "pig", "goat", "chicken", "duck", "deer", "zebraanimal", "lion", "tiger", "bear", "panda", "elephant", "giraffe", "camel", "monkey", "penguin", "turtle", "frog", "crocodile", "dolphin"] },
+  { title: "Santa and friends", keys: ["xsanta", "xsnowman", "xreindeer", "xsleigh", "xelf"] },
+  { title: "Gifts and candy", keys: ["xgift", "xgiftpile", "xsack", "xcandycane"] },
+  { title: "Snow and sky", keys: ["xcloud", "xsnowfall", "xsnowmound", "xsnowroof", "xicicles", "xigloo"] },
+  { title: "Rain and water", keys: ["xrainfall", "xpuddle", "xgutter", "xrainbarrel", "xumbrella", "xrainbow"] },
+  { title: "Christmas house", keys: ["xgingerbread", "xfireplace", "xnativity", "xxlamp"] },
+  { title: "Christmas trees and lights", keys: ["xtree", "xlightstring", "xgarland", "xwreath", "xstar", "xbauble", "xbells", "xsnowflake", "xstocking"] },
   { title: "Car porch and garage", keys: ["carporch"] },
   { title: "Road vehicles", keys: ["car", "luxsedan", "sportsedan", "taxi", "suv", "midsuv", "fullsuv", "policecar", "racecar", "pickup", "van", "ambulance", "firetruck", "truck", "rickshaw", "bus", "schoolbus", "doubledecker"] },
   { title: "Construction vehicles", keys: ["dumptruck", "cement", "tractor", "excavator", "bulldozer", "crane"] },
