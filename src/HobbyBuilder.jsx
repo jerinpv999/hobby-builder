@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { getThumb, peekThumb } from "./thumbs";
 import { MOTIONS, AXES, cleanAnim, newAnim, applyPieceAnims, resetPieceAnims, spinFans, pathPoints } from "./pieceAnimations";
 import { exportObjZip } from "./objExport";
+import ObjViewer from "./ObjViewer";
 import { planAnimation, playPreview, recordGif, recordVideo, downloadBlob } from "./animation";
 import { PRESET_VIEWS, PHOTO_SIZES, takePhotos, contactSheet, canvasToBlob } from "./photo";
 import { MIN_N, MAX_N, serializeStructure, parseStructure, loadSaved, autosave } from "./structureIO";
@@ -325,6 +326,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
   const [cat, setCat] = useState(GROUPS[0].title); // piece category shown in the picker
   const [query, setQuery] = useState(""); // piece search text
   const [animOpen, setAnimOpen] = useState(false); // animation panel
+  const [viewerOpen, setViewerOpen] = useState(false); // built-in 3D model (.obj) viewer
   const [helpOpen, setHelpOpen] = useState(false); // keyboard shortcut list
   const [catOpen, setCatOpen] = useState(false); // window showing every piece at once
   const [catQuery, setCatQuery] = useState("");
@@ -943,6 +945,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         return;
       }
       const mod = e.ctrlKey || e.metaKey;
+      if (A.viewerOpen && k !== "escape") return; // the 3D viewer is open: leave other keys alone
       if (A.busy && k !== "escape" && k !== "?" && !(k === "h" && !mod)) return; // exporting: only Esc and help
       if (t.walk && t.walk.active && !mod && MOVE.includes(k)) {
         if (k.startsWith("arrow") || k === " ") e.preventDefault();
@@ -1892,7 +1895,9 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
       else if (mode === "select") t.selectAt(t.lastPointer);
       else t.placeAt(t.lastPointer);
     },
+    viewerOpen,
     escape: () => {
+      if (viewerOpen) return setViewerOpen(false);
       if (helpOpen) return setHelpOpen(false);
       if (catOpen) return setCatOpen(false);
       if (busy) {
@@ -2301,6 +2306,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         <div className="grp">
           <button className="btn" onClick={saveJson} title="Download your build as a JSON file (Ctrl+S)">Save</button>
           <button className="btn" onClick={saveObj} title="Download a 3D model (.obj + .mtl in a zip) to show others in Blender or an online viewer">Export OBJ</button>
+          <button className="btn" onClick={() => setViewerOpen(true)} title="View your build, or any .obj file, as a 3D model you can spin and zoom">View 3D</button>
           <button className="btn" onClick={() => fileRef.current.click()} title="Open a saved JSON file (Ctrl+O)">Load</button>
           <input ref={fileRef} type="file" accept=".json,application/json" onChange={loadJson} style={{ display: "none" }} />
         </div>
@@ -2702,6 +2708,7 @@ export default function HobbyBuilder({ initial, onChange } = {}) {
         </div>
       )}
 
+      {viewerOpen && <ObjViewer getRoot={() => three.current && three.current.brickGroup} onClose={() => setViewerOpen(false)} />}
       {helpOpen && (
         <div className="overlay" onClick={() => setHelpOpen(false)}>
           <div className="help" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" onClick={(e) => e.stopPropagation()}>
