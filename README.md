@@ -455,6 +455,18 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 | Piece limit per file | `MAX_PIECES` in `structureIO.js` | 2000 |
 | GIF size and speed | `width` and `fps` in `recordGif()` in `animation.js` | 480 and 15 |
 
+## Hosting on GitHub
+
+The repository is at <https://github.com/jerinpv999/hobby-builder>. GitHub Pages can host the app as a static site, and `.github/workflows/deploy.yml` builds and publishes it on every push to `main`.
+
+1. Push the repository to GitHub.
+2. In the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**.
+3. Push to `main` (or run the workflow from the **Actions** tab). The site appears at `https://jerinpv999.github.io/hobby-builder/`.
+
+The workflow sets `VITE_BASE` to `/<repo-name>/` so asset paths work under that address. Locally the base stays `/`. If you use a custom domain or a `<user>.github.io` repository, set `VITE_BASE` to `/`.
+
+**Limits.** Pages only serves static files, so the Node server in `server/` (accounts, sessions, cloud workspaces) does not run there. The hosted site works with browser autosave and Save JSON / Load JSON. To use accounts, host `server/` elsewhere (see `START-HERE.md`) and serve the site from the same address.
+
 ## Troubleshooting
 
 - **`styleText` error when creating the project.** Your Node is older than the newest Vite needs. Use `npm create vite@5` or upgrade Node.
