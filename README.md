@@ -457,13 +457,19 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 
 ## Hosting on GitHub
 
-The repository is at <https://github.com/jerinpv999/hobby-builder>. GitHub Pages can host the app as a static site, and `.github/workflows/deploy.yml` builds and publishes it on every push to `main`.
+The repository is at <https://github.com/jerinpv999/hobby-builder>. GitHub Pages hosts the app as a static site. You build it on your computer and push the result to the `gh-pages` branch.
 
-1. Push the repository to GitHub.
-2. In the repository, open **Settings → Pages** and set **Source** to **GitHub Actions**.
-3. Push to `main` (or run the workflow from the **Actions** tab). The site appears at `https://jerinpv999.github.io/hobby-builder/`.
+**One-time setup.** In the repository, open **Settings → Pages**, set **Source** to **Deploy from a branch**, then pick `gh-pages` and `/ (root)`.
 
-The workflow sets `VITE_BASE` to `/<repo-name>/` so asset paths work under that address. Locally the base stays `/`. If you use a custom domain or a `<user>.github.io` repository, set `VITE_BASE` to `/`.
+**Each time you want to publish:**
+
+```bash
+npm run deploy
+```
+
+This runs `deploy.sh`, which builds with `VITE_BASE=/<repo-name>/` (so asset paths work under that address), then force-pushes the build to `gh-pages`. It needs Node 20 or newer and a GitHub login that can push from your terminal. The site appears at `https://jerinpv999.github.io/hobby-builder/` about a minute later.
+
+Locally the base stays `/`. If you use a custom domain or a `<user>.github.io` repository, set `VITE_BASE=/` in `deploy.sh`.
 
 **Limits.** Pages only serves static files, so the Node server in `server/` (accounts, sessions, cloud workspaces) does not run there. The hosted site works with browser autosave and Save JSON / Load JSON. To use accounts, host `server/` elsewhere (see `START-HERE.md`) and serve the site from the same address.
 
