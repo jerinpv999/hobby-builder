@@ -34,9 +34,18 @@ export function pushOut(s, x, z, r) {
   return { x: x + nx * (r - d + 1e-4), z: z + nz * (r - d + 1e-4) };
 }
 
+/* one street lamp to a road tile, on a footpath, changing sides from tile to tile.
+   Returns the side it stands on as [dx, dz], or null where roads meet on all four sides. */
+export const LAMP_AT = 0.47; // from the middle of the tile
+export function streetLamp(cellAt, x, z) {
+  const sides = [[0, -1], [1, 0], [0, 1], [-1, 0]].filter(([dx, dz]) => cellAt(x + dx, z + dz)?.t !== "road");
+  return sides.length ? sides[(x + z) % sides.length] : null;
+}
+
 /* ---------- what stands on each kind of tile, measured from the tile's centre ---------- */
 const rect = (x0, x1, z0, z1, h) => ({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, hw: (x1 - x0) / 2, hl: (z1 - z0) / 2, h });
 const post = (x, z, r, h) => ({ x, z, r, h });
+const pole = (x, z, r, h) => ({ x, z, r, h, thin: true }); // too thin to hide anything from the camera
 const CORNERS = [[-1, -1], [1, -1], [-1, 1], [1, 1]];
 
 // buildings: [x0, x1, z0, z1] of the ground floor (matches blender/make_models.py)
@@ -81,12 +90,16 @@ export function createCollision({ N, cellAt, rotates = () => false, extent, plan
     const none = !n && !e && !s && !w;
     return [[0, 1, n], [0, -1, s], [1, 0, w || none], [-1, 0, e || none]]
       .filter((a) => a[2])
-      .map(([dx, dz]) => post((-dx - dz) * 0.43, (-dz + dx) * 0.43, 0.025, 0.58));
+      .map(([dx, dz]) => pole((-dx - dz) * 0.43, (-dz + dx) * 0.43, 0.025, 0.58));
+  }
+  function lampPost(x, z) {
+    const side = streetLamp(cellAt, x, z);
+    return side ? [pole(side[0] * LAMP_AT, side[1] * LAMP_AT, 0.012, 0.56)] : [];
   }
 
   function local(cell, x, z) {
     const { t } = cell;
-    if (t === "road") return poles(cell, x, z);
+    if (t === "road") return [...poles(cell, x, z), ...lampPost(x, z)];
     if (t === "apron") return planesParked() ? PARKED_PLANE : [];
     if (PROPS[t]) return PROPS[t];
     if (WALLS[t]) return [rect(...WALLS[t], tileHeight(cell))];
@@ -105,14 +118,15 @@ export function createCollision({ N, cellAt, rotates = () => false, extent, plan
     return local(cell, x, z).map((s) => ({ ...s, yaw, x: cx + s.x * cos + s.z * sin, z: cz - s.x * sin + s.z * cos }));
   }
 
-  /* is anything built within r of this point? With y, only things taller than y count. */
+  /* is anything built within r of this point? With y (for the camera), only things taller than y
+     count, and thin poles are ignored. */
   function hit(wxp, wzp, r, y = 0) {
     const tx = Math.floor(wxp + N / 2), tz = Math.floor(wzp + N / 2);
     const reach = 4; // imported models can be several tiles wide
     for (let z = tz - reach; z <= tz + reach; z++) for (let x = tx - reach; x <= tx + reach; x++) {
       const c = cellAt(x, z);
       if (!c || (c.t !== "custom" && (Math.abs(x - tx) > 1 || Math.abs(z - tz) > 1))) continue;
-      if (shapes(c, x, z).some((s) => y < s.h && distance(s, wxp, wzp) < r)) return true;
+      if (shapes(c, x, z).some((s) => y < s.h && !(y > 0 && s.thin) && distance(s, wxp, wzp) < r)) return true;
     }
     return false;
   }

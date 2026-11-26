@@ -4,7 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createFlights } from "./flights.js";
 import { createTraffic, signalMode, LANE, SCALE } from "./traffic.js";
 import { createPeople } from "./people.js";
-import { createCollision, blocks, distance, pushOut, PLAYER_R, PERSON_R } from "./collide.js";
+import { createCollision, streetLamp, LAMP_AT, blocks, distance, pushOut, PLAYER_R, PERSON_R } from "./collide.js";
 import { createWalker, EYE } from "./walk.js";
 import { greeting, reply } from "./talk.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
@@ -15,6 +15,9 @@ export const KEY = "hobby-city-v1";
 export const VIEWS = [["eyes", "👁 My eyes"], ["back", "🧍 Back view"], ["front", "🙂 Front view"], ["top", "🛰 Top view"]];
 const FOV = { eyes: 68, back: 60, front: 60, top: 55 };
 const TRAIN_SCALE = 1.9; // suits the size of the people, like the road vehicles
+// vehicle materials that light up after dark: [colour, brightness]
+const VEHICLE_LIGHTS = { v_headlight: ["#fff1c1", 3.5], v_redlight: ["#ff1a10", 3], redlight: ["#ff2a2a", 2.5] };
+const FOOTPATH = 0.13; // width of the pavement along each side of a road
 export const PALETTE = ["#e8dcc8", "#f2c9a0", "#d9886b", "#b5c7d3", "#9fb8a0", "#e3e0e8", "#f0e68c", "#c9a7c7", "#8fb3d9", "#d7d7d7"];
 export const GLASS = ["#8fb3d9", "#9fc5e8", "#b8c7d9", "#7fa6c9", "#d9e2ec", "#a8d5ba"];
 export const GREENS = ["#4f9d4a", "#3f8a43", "#6bb04f", "#2f7a45", "#8bbf4c", "#c98a3a"];
@@ -329,6 +332,102 @@ function railArms(g, nb) {
   return { sleepers, rails };
 }
 
+/* ---------- headlights and street lamps ---------- */
+const vehicleGlow = new Map(); // vehicle lamp materials -> full brightness
+let lightsOn = 0; // 0 by day, 1 once it is dark enough for headlights and street lamps
+let kit = null; // shapes and materials shared by every street lamp and headlight
+function glowTexture(draw) {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  draw(c.getContext("2d"));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function lightKit() {
+  if (kit) return kit;
+  const spot = glowTexture((g) => {
+    const r = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    [[0, 1], [0.35, 0.55], [0.7, 0.15], [1, 0]].forEach(([at, a]) => r.addColorStop(at, `rgba(255,255,255,${a})`));
+    g.fillStyle = r;
+    g.fillRect(0, 0, 128, 128);
+  });
+  const cone = glowTexture((g) => { // narrow at the car (top of the picture), spreading and fading ahead
+    const fade = g.createLinearGradient(0, 0, 0, 128);
+    [[0, 0.9], [0.4, 0.55], [1, 0]].forEach(([at, a]) => fade.addColorStop(at, `rgba(255,255,255,${a})`));
+    g.filter = "blur(7px)";
+    g.fillStyle = fade;
+    g.beginPath();
+    g.moveTo(38, 4); g.lineTo(90, 4); g.lineTo(120, 120); g.lineTo(8, 120);
+    g.fill();
+  });
+  const add = { transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false };
+  kit = {
+    pole: new THREE.CylinderGeometry(0.006, 0.009, 0.5, 8),
+    arm: new THREE.BoxGeometry(0.1, 0.008, 0.008),
+    head: new THREE.BoxGeometry(0.045, 0.014, 0.028),
+    pool: new THREE.PlaneGeometry(0.75, 0.75).rotateX(-Math.PI / 2),
+    beam: new THREE.PlaneGeometry(0.17, 0.3).rotateX(-Math.PI / 2).translate(0, 0, 0.15),
+    metal: mat("#39414e", { roughness: 0.5, metalness: 0.4 }),
+    bulb: new THREE.MeshStandardMaterial({ color: "#d9d4c4", emissive: "#ffd48a", emissiveIntensity: 0 }),
+    poolMat: new THREE.MeshBasicMaterial({ color: "#ffc66e", map: spot, ...add }),
+    beamMat: new THREE.MeshBasicMaterial({ color: "#fff0c2", map: cone, ...add }),
+    halo: new THREE.SpriteMaterial({ color: "#ffd48a", map: spot, ...add }),
+    headlamp: new THREE.SpriteMaterial({ color: "#fff3cf", map: spot, ...add }),
+    tail: new THREE.SpriteMaterial({ color: "#ff2616", map: spot, ...add }),
+  };
+  return kit;
+}
+/* a shared part: never disposed with its tile or vehicle, and light itself can't be clicked */
+function part(o, glow = false) {
+  o.userData.cached = true;
+  if (glow) o.raycast = () => {};
+  return o;
+}
+function glowSprite(material, size, x, y, z) {
+  const o = part(new THREE.Sprite(material), true);
+  o.scale.setScalar(size);
+  o.position.set(x, y, z);
+  return o;
+}
+function switchLights(on) {
+  lightsOn = on;
+  vehicleGlow.forEach((full, m) => { m.emissiveIntensity = on * full; });
+  const k = lightKit();
+  k.bulb.emissiveIntensity = on * 3;
+  [[k.poolMat, 0.42], [k.beamMat, 0.6], [k.halo, 0.75], [k.headlamp, 0.9], [k.tail, 0.8]].forEach(([m, full]) => {
+    m.opacity = on * full;
+    m.visible = on > 0.01;
+  });
+}
+/* headlamps, tail lamps and the light thrown on the ground, for a vehicle whose model is
+   `length` long and has its lamps `y` above its wheels (all before the vehicle is scaled) */
+function vehicleLamps(g, length, y, { front = true, back = true } = {}) {
+  const k = lightKit(), end = length / 2 + 0.003;
+  if (front) {
+    const beam = part(new THREE.Mesh(k.beam, k.beamMat), true);
+    beam.position.set(0, 0.006, end);
+    g.add(beam, glowSprite(k.headlamp, 0.04, -0.028, y, end), glowSprite(k.headlamp, 0.04, 0.028, y, end));
+  }
+  if (back) g.add(glowSprite(k.tail, 0.032, -0.028, y, -end), glowSprite(k.tail, 0.032, 0.028, y, -end));
+}
+/* a lamp post on the footpath at side (dx, dz) of a road tile, reaching over the road */
+function addStreetLamp(g, [dx, dz]) {
+  const k = lightKit();
+  const post = new THREE.Group();
+  post.position.set(dx * LAMP_AT, 0, dz * LAMP_AT);
+  post.rotation.y = Math.atan2(dz, -dx); // local +x points to the road
+  const put = (geo, m, x, y) => { const o = part(new THREE.Mesh(geo, m)); o.position.set(x, y, 0); post.add(o); return o; };
+  put(k.pole, k.metal, 0, 0.31).castShadow = true;
+  put(k.arm, k.metal, 0.048, 0.556);
+  put(k.head, k.bulb, 0.095, 0.549);
+  const pool = part(new THREE.Mesh(k.pool, k.poolMat), true);
+  pool.position.set(0.13, 0.064, 0);
+  post.add(pool, glowSprite(k.halo, 0.13, 0.095, 0.54, 0));
+  g.add(post);
+  g.userData.lamp = { x: dx * (LAMP_AT - 0.11), z: dz * (LAMP_AT - 0.11) };
+}
+
 /* poles, stop lines and lamps for a road with traffic lights or a warning light */
 const SIGNAL_COLOURS = [["red", "#ff2418", "#3a0b08"], ["amber", "#ffa510", "#3a2806"], ["green", "#1fe85a", "#06321a"]];
 function signalLamp(g, emissive, off, r, x, y, z) {
@@ -361,7 +460,7 @@ function addSignals(g, mode, nb) {
     if (mode === "lights") {
       const axis = dz !== 0 ? "ns" : "ew";
       SIGNAL_COLOURS.forEach(([key, on, off], i) => lamps[axis][key].push(signalLamp(pole, on, off, 0.018, 0, 0.405 - i * 0.045, 0.024)));
-      g.add(box(dz ? 0.34 : 0.03, 0.006, dz ? 0.03 : 0.34, "#ffffff", -dx * 0.48 + rx * 0.22, 0.045, -dz * 0.48 + rz * 0.22, { snow: 0 }));
+      g.add(box(dz ? 0.32 : 0.03, 0.006, dz ? 0.03 : 0.32, "#ffffff", -dx * 0.48 + rx * 0.2, 0.045, -dz * 0.48 + rz * 0.2, { snow: 0 }));
     } else blink.push(signalLamp(pole, "#ffa510", "#3a2806", 0.026, 0, 0.39, 0.024));
     g.add(pole);
   });
@@ -376,12 +475,20 @@ function buildTile(cell, nb) {
   if (t === "road") {
     g.add(box(1, 0.04, 1, "#44474f", 0, 0.02, 0, { snow: 0.3, ...surf("asphalt") }));
     let { n, e, s, w } = nb;
-    const side = "#c9c6bd";
+    const side = "#d2bea8";
     const kerb = surf("concrete");
-    if (!n) g.add(box(1, 0.06, 0.1, side, 0, 0.03, -0.45, kerb));
-    if (!s) g.add(box(1, 0.06, 0.1, side, 0, 0.03, 0.45, kerb));
-    if (!e) g.add(box(0.1, 0.06, 1, side, 0.45, 0.03, 0, kerb));
-    if (!w) g.add(box(0.1, 0.06, 1, side, -0.45, 0.03, 0, kerb));
+    // footpaths along every side no road joins, with a kerb stone at the edge
+    const mid = 0.5 - FOOTPATH / 2, edge = 0.5 - FOOTPATH;
+    [[0, -1, n], [0, 1, s], [1, 0, e], [-1, 0, w]].forEach(([dx, dz, joined]) => {
+      if (joined) return;
+      g.add(box(dx ? FOOTPATH : 1, 0.06, dx ? 1 : FOOTPATH, side, dx * mid, 0.03, dz * mid, kerb));
+      g.add(box(dx ? 0.014 : 1, 0.004, dx ? 1 : 0.014, "#ece9e1", dx * (edge + 0.007), 0.061, dz * (edge + 0.007)));
+    });
+    // where two roads meet, the footpath carries on round the corner
+    [[-1, -1, w, n], [1, -1, e, n], [-1, 1, w, s], [1, 1, e, s]].forEach(([a, b, across, along]) => {
+      if (across && along) g.add(box(FOOTPATH, 0.06, FOOTPATH, side, a * mid, 0.03, b * mid, kerb));
+    });
+    if (nb.lamp) addStreetLamp(g, nb.lamp);
     if (!n && !e && !s && !w) { e = true; w = true; }
     const dash = (x, z, vertical) => g.add(box(vertical ? 0.04 : 0.16, 0.01, vertical ? 0.16 : 0.04, "#f4f1e6", x, 0.045, z));
     if (n) dash(0, -0.3, true);
@@ -863,7 +970,7 @@ export function createEngine(container, hooks, library, assets) {
     return !!k && KLASS[b.t] === k && axisOk(self, dx) && axisOk(b, dx);
   }
   const isRw = (x, z) => cellAt(x, z)?.t === "runway";
-  const nbOf = (x, z, self) => ({ n: link(x, z, 0, -1, self), e: link(x, z, 1, 0, self), s: link(x, z, 0, 1, self), w: link(x, z, -1, 0, self), rw: { n: isRw(x, z - 1), e: isRw(x + 1, z), s: isRw(x, z + 1), w: isRw(x - 1, z) }, flow: flow.has(x + z * N), down: flow.get(x + z * N) });
+  const nbOf = (x, z, self) => ({ n: link(x, z, 0, -1, self), e: link(x, z, 1, 0, self), s: link(x, z, 0, 1, self), w: link(x, z, -1, 0, self), rw: { n: isRw(x, z - 1), e: isRw(x + 1, z), s: isRw(x, z + 1), w: isRw(x - 1, z) }, flow: flow.has(x + z * N), down: flow.get(x + z * N), lamp: (self || cellAt(x, z))?.t === "road" ? streetLamp(cellAt, x, z) : null });
 
   /* which drains reach an outlet (water or a treatment plant), and which way they run */
   let flow = new Map();
@@ -1270,8 +1377,32 @@ export function createEngine(container, hooks, library, assets) {
     scene.background.copy(sky);
     night = 1 - day;
     lit.forEach((m) => { m.emissiveIntensity = night; });
+    switchLights(THREE.MathUtils.smoothstep(night, 0.35, 0.75));
   }
   setTime(hour);
+
+  /* real light from the street lamps nearest to where you are (a few, shared between them all) */
+  const lampLights = Array.from({ length: 8 }, () => new THREE.PointLight("#ffc57a", 0, 1.6, 1.4));
+  scene.add(...lampLights);
+  function stepStreetLights() {
+    const at = walking ? walker.state : controls.target;
+    const near = [];
+    if (lightsOn > 0.01) groups.forEach((g) => {
+      const l = g.userData.lamp;
+      if (!l) return;
+      const x = g.position.x + l.x, z = g.position.z + l.z;
+      near.push({ x, z, d: Math.hypot(x - at.x, z - at.z) });
+    });
+    near.sort((a, b) => a.d - b.d);
+    const edge = near[lampLights.length]?.d ?? Infinity;
+    lampLights.forEach((light, i) => {
+      const l = near[i];
+      light.visible = !!l;
+      if (!l) return;
+      light.position.set(l.x, 0.5, l.z);
+      light.intensity = 0.3 * lightsOn * Math.min(1, (edge - l.d) / 0.6); // fade as it hands over
+    });
+  }
 
   /* cars */
   const carGroup = new THREE.Group();
@@ -1300,6 +1431,7 @@ export function createEngine(container, hooks, library, assets) {
       const k = new THREE.Mesh(cabGeo, cabMat); k.position.set(0, 0.11, -0.01); k.castShadow = true;
       g.add(b, k);
     }
+    vehicleLamps(g, c.len / SCALE[c.kind], 0.036);
     g.scale.setScalar(SCALE[c.kind]);
     carGroup.add(g);
     return { g, bm, dx: c.nx - c.x, dz: c.nz - c.z };
@@ -1365,9 +1497,10 @@ export function createEngine(container, hooks, library, assets) {
     const tx = Math.floor(x + N / 2), tz = Math.floor(z + N / 2), t = cellAt(tx, tz)?.t;
     if (t !== "road") return GROUND_Y[t] ?? 0.025;
     const dx = x - wx(tx), dz = z - wx(tz);
-    // the kerb runs along each side that no other road joins
-    const kerb = (Math.abs(dx) > 0.4 && cellAt(tx + Math.sign(dx), tz)?.t !== "road") || (Math.abs(dz) > 0.4 && cellAt(tx, tz + Math.sign(dz))?.t !== "road");
-    return kerb ? 0.06 : 0.044;
+    // the footpath runs along each side that no other road joins, and round every corner
+    const outX = Math.abs(dx) > 0.5 - FOOTPATH, outZ = Math.abs(dz) > 0.5 - FOOTPATH;
+    const path = (outX && outZ) || (outX && cellAt(tx + Math.sign(dx), tz)?.t !== "road") || (outZ && cellAt(tx, tz + Math.sign(dz))?.t !== "road");
+    return path ? 0.062 : 0.044;
   }
 
   /* townspeople */
@@ -1678,7 +1811,11 @@ export function createEngine(container, hooks, library, assets) {
         if (pts.length < 6) continue;
         const g = new THREE.Group();
         const cars = sy.make();
-        cars.forEach((c) => { c.scale.setScalar(TRAIN_SCALE); g.add(c); });
+        cars.forEach((c, k) => {
+          c.scale.setScalar(TRAIN_SCALE);
+          vehicleLamps(c, 0.386, 0.06, { front: k === 0, back: k === cars.length - 1 });
+          g.add(c);
+        });
         sy.group.add(g);
         sy.trains.push({ g, cars, pts, s: 3.2, ang: cars.map(() => 0), held: 0 });
       }
@@ -1773,6 +1910,7 @@ export function createEngine(container, hooks, library, assets) {
     stepSignals(dt);
     stepPeople(dt);
     stepWalk(dt);
+    stepStreetLights();
     stepSky(dt);
     stepSeason(dt);
     if (!walking) controls.update();
@@ -1801,6 +1939,12 @@ export function createEngine(container, hooks, library, assets) {
     if (color) m.color.set(color);
     if (name === "glasslit") { m.emissive.set("#ffc873"); m.emissiveIntensity = night; lit.add(m); }
     if (name === "tintglass") Object.assign(m, { metalness: 0.35, roughness: 0.12 });
+    if (VEHICLE_LIGHTS[name]) {
+      const [tone, full] = VEHICLE_LIGHTS[name];
+      m.emissive.set(tone);
+      m.emissiveIntensity = lightsOn * full;
+      vehicleGlow.set(m, full);
+    }
     if (name === "greenglass") Object.assign(m, { transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
     if (["leaf", "pine", "crop"].includes(name)) { m.alphaTest = 0.5; m.side = THREE.DoubleSide; }
     // moving things (names starting v_, and paint) stay clear of snow
@@ -1979,6 +2123,7 @@ export function createEngine(container, hooks, library, assets) {
       groups.forEach(disposeGroup);
       library.dispose();
       assets?.dispose();
+      vehicleGlow.clear();
       envMap.dispose();
       ASSETS = null;
       renderer.dispose();
