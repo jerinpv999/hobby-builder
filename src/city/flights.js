@@ -44,7 +44,8 @@ export function tileHeight(c) {
   }
 }
 
-export function createFlights({ N, cellAt, wx }) {
+/* obstacle() is where a person on foot is, as { x, z }, or null */
+export function createFlights({ N, cellAt, wx, obstacle = () => null }) {
   const planes = [];
   let rw = null, sig = "", owner = null, stands = [], active = false;
   const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
@@ -206,6 +207,12 @@ export function createFlights({ N, cellAt, wx }) {
             const ox = o.pos.x - pl.pos.x, oz = o.pos.z - pl.pos.z, dist = Math.hypot(ox, oz);
             const lateral = Math.abs(ox * hz - oz * hx);
             if (dist < 2.2 && lateral < 1.1 && (ox * hx + oz * hz) / (dist || 1) > 0.3) stepLen = 0;
+          }
+          const who = obstacle(), len = Math.hypot(dir.x, dir.z);
+          if (who && len > 1e-6) { // stop short of someone in the way of the nose or wings
+            const ox = who.x - pl.pos.x, oz = who.z - pl.pos.z;
+            const along = (ox * dir.x + oz * dir.z) / len, lateral = Math.abs(ox * dir.z - oz * dir.x) / len;
+            if (along > 0 && along < 1.1 && lateral < 0.7) stepLen = 0;
           }
         }
         const dist = dir.length();

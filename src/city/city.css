@@ -56,6 +56,7 @@ kbd { background: #121722; border: 1px solid #323b50; border-radius: 3px; paddin
 .hud { position: absolute; left: 10px; right: 10px; top: 10px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: rgba(28, 34, 48, .88); padding: 8px 10px; border-radius: 10px; }
 .hud .hint { margin: 0; }
 .compass { font-weight: 700; min-width: 56px; }
+.views { display: flex; flex-wrap: wrap; gap: 4px; }
 .pad { position: absolute; left: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(3, 44px); gap: 6px; }
 .pad button { height: 44px; text-align: center; background: rgba(28, 34, 48, .85); font-size: 16px; touch-action: none; user-select: none; }
 .prompt { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); background: #ffb703; color: #1b1b1b; border-color: #ffb703; font-weight: 600; padding: 10px 16px; white-space: nowrap; }

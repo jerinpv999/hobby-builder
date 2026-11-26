@@ -1,10 +1,14 @@
-/* Townspeople: who they are, where they walk, and where you may walk. Pure logic, no rendering. */
+/* Townspeople: who they are and where they walk. Pure logic, no rendering. */
 import { makeProfile } from "./talk.js";
 
 const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
 const SIDEWALK = 0.43; // how far from the middle of a road tile people walk
+// ways to try when the straight line is blocked: ahead, then further and further round, right side first
+const TURNS = [0, 0.7, -0.7, 1.4, -1.4, 2.1, -2.1];
+const PATIENCE = 4; // seconds without getting closer before someone turns back
 
-export function createPeople({ N, cellAt, traffic, rnd = Math.random }) {
+/* blocked(person, x, z) says whether stepping to (x, z) would walk into something */
+export function createPeople({ N, cellAt, traffic, blocked = () => false, rnd = Math.random }) {
   const list = [];
   let nextId = 1;
   const wx = (x) => x - N / 2 + 0.5;
@@ -19,7 +23,7 @@ export function createPeople({ N, cellAt, traffic, rnd = Math.random }) {
 
   /* the spot on tile (x, z) for someone heading (dx, dz): the right-hand sidewalk, or a park path */
   function spot(x, z, dx, dz, off) {
-    const k = cellAt(x, z)?.t === "park" ? off * 0.2 : off;
+    const k = cellAt(x, z)?.t === "park" ? off * 0.49 : off; // in a park, pass beside the fountain
     return [wx(x) - dz * k, wx(z) + dx * k];
   }
 
@@ -28,8 +32,22 @@ export function createPeople({ N, cellAt, traffic, rnd = Math.random }) {
     if (!all.length) return false;
     const onward = all.filter(([a, b]) => !(a === p.px && b === p.pz));
     [p.nx, p.nz] = pick(onward.length ? onward : all);
-    [p.tx, p.tz] = spot(p.nx, p.nz, p.nx - p.x, p.nz - p.z, p.off);
+    aim(p);
     return true;
+  }
+
+  function aim(p) {
+    [p.tx, p.tz] = spot(p.nx, p.nz, p.nx - p.x, p.nz - p.z, p.off);
+    p.best = Infinity;
+    p.stall = 0;
+  }
+
+  /* give up on this way and head back where we came from */
+  function turnBack(p) {
+    [p.x, p.z, p.nx, p.nz] = [p.nx, p.nz, p.x, p.z];
+    p.px = -1; p.pz = -1;
+    p.crossing = false;
+    aim(p);
   }
 
   function spawn() {
@@ -70,41 +88,32 @@ export function createPeople({ N, cellAt, traffic, rnd = Math.random }) {
         if (near) p.crossing = true;
       }
       const dx = p.tx - p.wx, dz = p.tz - p.wz, dist = Math.hypot(dx, dz), go = p.speed * dt;
-      if (dist <= go) {
-        p.wx = p.tx; p.wz = p.tz;
+      // there, or as near as whoever is standing on the spot allows
+      if (dist <= go || (dist < 0.07 && blocked(p, p.tx, p.tz))) {
+        if (dist <= go && !blocked(p, p.tx, p.tz)) { p.wx = p.tx; p.wz = p.tz; }
         p.px = p.x; p.pz = p.z; p.x = p.nx; p.z = p.nz;
         p.crossing = false;
         if (rnd() < 0.05) p.pause = 1 + rnd() * 3; // stop to look around
         choose(p);
-      } else {
-        p.wx += (dx / dist) * go; p.wz += (dz / dist) * go;
-        p.yaw = Math.atan2(dx, dz);
+        continue;
+      }
+      const ux = dx / dist, uz = dz / dist;
+      for (const a of TURNS) {
+        const c = Math.cos(a), s = Math.sin(a);
+        const vx = ux * c - uz * s, vz = uz * c + ux * s;
+        const x = p.wx + vx * go, z = p.wz + vz * go;
+        if (!walkTile(Math.floor(x + N / 2), Math.floor(z + N / 2)) || blocked(p, x, z)) continue;
+        p.wx = x; p.wz = z;
+        p.yaw = Math.atan2(vx, vz);
         p.moving = true;
         p.phase += go * 55;
+        break;
       }
+      const left = Math.hypot(p.tx - p.wx, p.tz - p.wz);
+      if (left < p.best - 0.01) { p.best = left; p.stall = 0; }
+      else if ((p.stall += dt) > PATIENCE) turnBack(p);
     }
   }
 
   return { list, setCount, step, count: () => tiles().length };
-}
-
-/* ---------- where a walker may stand ---------- */
-const OPEN = new Set(["road", "park", "field", "vegfarm", "orchard", "pasture", "runway", "taxiway", "apron", "rail", "drain", "railstation", "gasstation"]);
-const POSTS = { tree: 0.07, metro: 0.13, metrostation: 0.13, turbine: 0.07 }; // only the trunk or pillar is in the way
-export const BODY = 0.035;
-
-export function canStand(wxp, wzp, N, cellAt, blockedExtent) {
-  if (Math.abs(wxp) > N / 2 - BODY || Math.abs(wzp) > N / 2 - BODY) return false;
-  const tx = Math.floor(wxp + N / 2), tz = Math.floor(wzp + N / 2);
-  const reach = blockedExtent ? 4 : 1; // imported models can be several tiles wide
-  for (let z = tz - reach; z <= tz + reach; z++) for (let x = tx - reach; x <= tx + reach; x++) {
-    const c = cellAt(x, z);
-    if (!c || OPEN.has(c.t)) continue;
-    const dx = wxp - (x - N / 2 + 0.5), dz = wzp - (z - N / 2 + 0.5);
-    if (POSTS[c.t]) { if (Math.hypot(dx, dz) < POSTS[c.t] + BODY) return false; continue; }
-    let hx = c.t === "water" ? 0.5 : 0.42, hz = hx;
-    if (c.t === "custom" && blockedExtent) { const e = blockedExtent(c); hx = e.w * 0.45; hz = e.d * 0.45; }
-    if (Math.abs(dx) < hx + BODY && Math.abs(dz) < hz + BODY) return false;
-  }
-  return true;
 }

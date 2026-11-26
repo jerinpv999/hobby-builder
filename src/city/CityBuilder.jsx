@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { createEngine, TYPES, GROUPS, SEASONS, PALETTE } from "./engine";
+import { createEngine, TYPES, GROUPS, SEASONS, PALETTE, VIEWS } from "./engine";
 import { createModelLibrary, MIN_SIZE, MAX_SIZE } from "./models";
 import { STORAGE_KEY as HOBBY_KEY } from "../structureIO";
 import { createAssets } from "./assets";
@@ -34,6 +34,8 @@ export default function CityBuilder() {
       if (!s.walking && !s.building) return; // nothing can be changed by key in explore mode
       if (s.walking) { // building keys are off while walking
         if (k === "e") { ev.preventDefault(); e.talkNearest(); }
+        else if (k === "v") e.nextView();
+        else if (VIEWS[+k - 1] && !ev.ctrlKey && !ev.metaKey) e.setView(VIEWS[+k - 1][0]);
         else if (k === "escape") { if (document.querySelector(".talk")) e.endTalk(); else e.stopWalk(); }
         return;
       }
@@ -48,7 +50,7 @@ export default function CityBuilder() {
   }, [bump]);
 
   const E = eng.current;
-  const st = E ? E.getState() : { tool: "select", rot: 0, sel: null, cell: null, canUndo: false, canRedo: false, name: "", hour: 14, traffic: true, season: "summer", walking: false, building: false, people: true, activeModel: null, models: [], extent: null };
+  const st = E ? E.getState() : { tool: "select", rot: 0, sel: null, cell: null, canUndo: false, canRedo: false, name: "", hour: 14, traffic: true, season: "summer", walking: false, view: "back", building: false, people: true, activeModel: null, models: [], extent: null };
   const stats = E ? E.stats() : { residents: 0, jobs: 0, roads: 0, green: 0, buildings: 0, farms: 0, drains: 0, flowing: 0 };
   const cell = st.cell;
   const def = cell ? TYPES[cell.t] : null;
@@ -177,11 +179,16 @@ export default function CityBuilder() {
           <>
             <div className="hud">
               <button onClick={() => E.stopWalk()}>← Stop walking</button>
+              <div className="views" role="group" aria-label="Camera view">
+                {VIEWS.map(([k, label], i) => (
+                  <button key={k} className={st.view === k ? "on" : ""} aria-pressed={st.view === k} title={`Key ${i + 1}`} onClick={(e) => { e.currentTarget.blur(); E.setView(k); }}>{label}</button>
+                ))}
+              </div>
               <span className="compass" title="Direction you are facing">🧭 {heading}</span>
               <label className="time">☀ {fmtHour(st.hour)}
                 <input type="range" min="0" max="24" step="0.25" value={st.hour} onChange={(e) => E.setTime(+e.target.value)} onPointerUp={(e) => e.target.blur()} />
               </label>
-              <span className="hint"><kbd>W A S D</kbd> move · <kbd>← →</kbd> turn · drag to look · <kbd>Shift</kbd> run · <kbd>E</kbd> talk · <kbd>Esc</kbd> leave</span>
+              <span className="hint"><kbd>W A S D</kbd> move · <kbd>← →</kbd> turn · drag to look · <kbd>1</kbd>–<kbd>4</kbd> or <kbd>V</kbd> view · scroll to zoom · <kbd>Shift</kbd> run · <kbd>E</kbd> talk · <kbd>Esc</kbd> leave</span>
             </div>
             <div className="pad">
               {[["turnLeft", "⟲"], ["forward", "▲"], ["turnRight", "⟳"], ["left", "◀"], ["back", "▼"], ["right", "▶"]].map(([a, icon]) => (

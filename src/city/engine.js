@@ -2,14 +2,19 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createFlights } from "./flights.js";
-import { createTraffic, signalMode } from "./traffic.js";
-import { createPeople, canStand } from "./people.js";
-import { createWalker } from "./walk.js";
+import { createTraffic, signalMode, LANE, SCALE } from "./traffic.js";
+import { createPeople } from "./people.js";
+import { createCollision, blocks, distance, pushOut, PLAYER_R, PERSON_R } from "./collide.js";
+import { createWalker, EYE } from "./walk.js";
 import { greeting, reply } from "./talk.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 export const N = 32;
 export const KEY = "hobby-city-v1";
+/* the camera while walking */
+export const VIEWS = [["eyes", "👁 My eyes"], ["back", "🧍 Back view"], ["front", "🙂 Front view"], ["top", "🛰 Top view"]];
+const FOV = { eyes: 68, back: 60, front: 60, top: 55 };
+const TRAIN_SCALE = 1.9; // suits the size of the people, like the road vehicles
 export const PALETTE = ["#e8dcc8", "#f2c9a0", "#d9886b", "#b5c7d3", "#9fb8a0", "#e3e0e8", "#f0e68c", "#c9a7c7", "#8fb3d9", "#d7d7d7"];
 export const GLASS = ["#8fb3d9", "#9fc5e8", "#b8c7d9", "#7fa6c9", "#d9e2ec", "#a8d5ba"];
 export const GREENS = ["#4f9d4a", "#3f8a43", "#6bb04f", "#2f7a45", "#8bbf4c", "#c98a3a"];
@@ -783,6 +788,8 @@ export function createEngine(container, hooks, library, assets) {
   let trafficOn = true;
   let peopleOn = true;
   let walking = false;
+  let view = "back"; // see VIEWS
+  let zoom = 1; // scroll wheel distance in the outside views
   let building = false; // explore mode until the player chooses to build
   let talkingTo = null;
   let nearPerson = null;
@@ -1119,6 +1126,12 @@ export function createEngine(container, hooks, library, assets) {
     down = null;
   };
   const onLeave = () => setHover(null);
+  const onWheel = (e) => {
+    if (!walking || view === "eyes") return;
+    e.preventDefault();
+    zoom = THREE.MathUtils.clamp(zoom * Math.exp(e.deltaY * 0.001), 0.5, 3);
+  };
+  dom.addEventListener("wheel", onWheel, { passive: false });
   dom.addEventListener("pointerdown", onDown, true);
   dom.addEventListener("pointermove", onMove);
   dom.addEventListener("pointerup", onUp);
@@ -1266,7 +1279,15 @@ export function createEngine(container, hooks, library, assets) {
   const CAR_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#f1faee", "#ffd166", "#6a4c93", "#222"];
   const bodyGeo = new THREE.BoxGeometry(0.09, 0.05, 0.19), cabGeo = new THREE.BoxGeometry(0.08, 0.045, 0.09);
   const cabMat = new THREE.MeshStandardMaterial({ color: "#cfe8f5", roughness: 0.2 });
-  const traffic = createTraffic({ N, cellAt });
+  const traffic = createTraffic({
+    N, cellAt,
+    // cars give way to everyone on foot
+    obstacles() {
+      const out = people.list.map((p) => ({ x: p.wx, z: p.wz, r: PERSON_R }));
+      if (walking) out.push({ x: walker.state.x, z: walker.state.z, r: PLAYER_R });
+      return out;
+    },
+  });
   const carViews = new Map(); // logic car -> what is drawn for it
   function makeCar(c) {
     const g = new THREE.Group();
@@ -1279,6 +1300,7 @@ export function createEngine(container, hooks, library, assets) {
       const k = new THREE.Mesh(cabGeo, cabMat); k.position.set(0, 0.11, -0.01); k.castShadow = true;
       g.add(b, k);
     }
+    g.scale.setScalar(SCALE[c.kind]);
     carGroup.add(g);
     return { g, bm, dx: c.nx - c.x, dz: c.nz - c.z };
   }
@@ -1289,7 +1311,7 @@ export function createEngine(container, hooks, library, assets) {
     carViews.delete(c);
   }
   function syncCars() {
-    traffic.setCount(trafficOn ? Math.min(34, Math.floor(traffic.count() * 0.5)) : 0);
+    traffic.setCount(trafficOn ? Math.min(26, Math.floor(traffic.count() * 0.35)) : 0);
   }
   function stepCars(dt) {
     traffic.step(dt);
@@ -1302,7 +1324,7 @@ export function createEngine(container, hooks, library, assets) {
       const k = Math.min(1, dt * 6);
       v.dx += (tx - v.dx) * k; v.dz += (tz - v.dz) * k;
       const len = Math.hypot(v.dx, v.dz) || 1, ux = v.dx / len, uz = v.dz / len;
-      v.g.position.set(wx(c.x + tx * c.t) - uz * 0.12, 0.04, wx(c.z + tz * c.t) + ux * 0.12);
+      v.g.position.set(wx(c.x + tx * c.t) - uz * LANE, 0.04, wx(c.z + tz * c.t) + ux * LANE);
       v.g.rotation.y = Math.atan2(ux, uz);
     });
   }
@@ -1322,12 +1344,47 @@ export function createEngine(container, hooks, library, assets) {
     });
   }
 
+  /* what is solid: the town itself, and everything on wheels or wings near the ground */
+  const collision = createCollision({ N, cellAt, rotates: (t) => !!TYPES[t].rot, extent: (c) => library.extent(c), planesParked: () => !flights.isActive() });
+  function vehicleShapes() {
+    const out = [];
+    carViews.forEach((v, c) => out.push({ x: v.g.position.x, z: v.g.position.z, yaw: v.g.rotation.y, hw: c.wid / 2, hl: c.len / 2 }));
+    systems[0].trains.forEach((t) => t.cars.forEach((car) => out.push(trainShape(car)))); // the metro is overhead
+    flights.planes.forEach((q) => {
+      if (q.pos.y > 0.25) return;
+      const at = { x: q.pos.x, z: q.pos.z, yaw: q.yaw };
+      out.push({ ...at, hw: 0.1, hl: 0.57 }, { ...at, hw: 0.62, hl: 0.14 }); // fuselage and wings
+    });
+    return out;
+  }
+  const trainShape = (car) => ({ x: car.position.x, z: car.position.z, yaw: car.rotation.y, hw: 0.057 * TRAIN_SCALE, hl: 0.193 * TRAIN_SCALE });
+
+  /* how high the ground is underfoot, so feet neither float nor sink */
+  const GROUND_Y = { park: 0.028, railstation: 0.07, runway: 0.032, taxiway: 0.03, apron: 0.027 };
+  function groundY(x, z) {
+    const tx = Math.floor(x + N / 2), tz = Math.floor(z + N / 2), t = cellAt(tx, tz)?.t;
+    if (t !== "road") return GROUND_Y[t] ?? 0.025;
+    const dx = x - wx(tx), dz = z - wx(tz);
+    // the kerb runs along each side that no other road joins
+    const kerb = (Math.abs(dx) > 0.4 && cellAt(tx + Math.sign(dx), tz)?.t !== "road") || (Math.abs(dz) > 0.4 && cellAt(tx, tz + Math.sign(dz))?.t !== "road");
+    return kerb ? 0.06 : 0.044;
+  }
+
   /* townspeople */
-  const people = createPeople({ N, cellAt, traffic });
+  let vehicles = []; // shapes of this frame's vehicles
+  const people = createPeople({
+    N, cellAt, traffic,
+    blocked(p, x, z) {
+      if (collision.hit(x, z, PERSON_R) && !collision.hit(p.wx, p.wz, PERSON_R)) return true;
+      if (vehicles.some((v) => blocks(v, p.wx, p.wz, x, z, PERSON_R))) return true;
+      if (walking && blocks({ x: walker.state.x, z: walker.state.z, r: PLAYER_R }, p.wx, p.wz, x, z, PERSON_R)) return true;
+      return people.list.some((o) => o !== p && blocks({ x: o.wx, z: o.wz, r: PERSON_R }, p.wx, p.wz, x, z, PERSON_R));
+    },
+  });
   const peopleGroup = new THREE.Group();
   scene.add(peopleGroup);
   const peopleViews = new Map();
-  function makePerson(p) {
+  function makeFigure(p) {
     const g = new THREE.Group();
     const part = (name, x, y, simple) => {
       const pivot = new THREE.Group();
@@ -1345,9 +1402,17 @@ export function createEngine(container, hooks, library, assets) {
       return arm;
     });
     g.scale.setScalar(p.child ? 0.72 : 1);
-    g.userData.person = p.id;
-    peopleGroup.add(g);
     return { g, legs, arms };
+  }
+  function makePerson(p) {
+    const v = makeFigure(p);
+    v.g.userData.person = p.id;
+    peopleGroup.add(v.g);
+    return v;
+  }
+  function swingLimbs(v, swing) {
+    v.legs[0].rotation.x = swing; v.legs[1].rotation.x = -swing;
+    v.arms[0].rotation.x = -swing * 0.8; v.arms[1].rotation.x = swing * 0.8;
   }
   function dropPerson(p) {
     const v = peopleViews.get(p);
@@ -1365,18 +1430,88 @@ export function createEngine(container, hooks, library, assets) {
     people.list.forEach((p) => {
       if (!peopleViews.has(p)) peopleViews.set(p, makePerson(p));
       const v = peopleViews.get(p);
-      v.g.position.set(p.wx, 0.058, p.wz);
+      v.g.position.set(p.wx, groundY(p.wx, p.wz), p.wz);
       if (p.talking) p.yaw = Math.atan2(walker.state.x - p.wx, walker.state.z - p.wz);
       v.g.rotation.y = p.yaw;
-      const swing = p.moving ? Math.sin(p.phase) * 0.55 : 0;
-      v.legs[0].rotation.x = swing; v.legs[1].rotation.x = -swing;
-      v.arms[0].rotation.x = -swing * 0.8; v.arms[1].rotation.x = swing * 0.8;
+      swingLimbs(v, p.moving ? Math.sin(p.phase) * 0.55 : 0);
       if (p.talking) v.arms[1].rotation.x = -0.5 + Math.sin(lampTime * 4) * 0.25;
     });
   }
 
-  /* first-person walking */
-  const walker = createWalker({ camera, canStand: (x, z) => canStand(x, z, N, cellAt, (c) => library.extent(c)) });
+  /* walking: your character, and the cameras that follow it */
+  const walker = createWalker({
+    canMove(fx, fz, x, z) {
+      // if something was built on top of us, let us out
+      if (!collision.canStand(x, z) && collision.canStand(fx, fz)) return false;
+      if (Math.abs(x) > N / 2 - PLAYER_R || Math.abs(z) > N / 2 - PLAYER_R) return false;
+      if (vehicles.some((v) => blocks(v, fx, fz, x, z, PLAYER_R))) return false;
+      return !people.list.some((p) => blocks({ x: p.wx, z: p.wz, r: PERSON_R }, fx, fz, x, z, PLAYER_R));
+    },
+  });
+  const ME = { woman: false, child: false, colors: { p_skin: "#e0ac85", p_hair: "#2e1d12", p_shirt: "#ff7a00", p_pants: "#1f3a8a" } };
+  const avatar = new THREE.Group();
+  avatar.visible = false;
+  scene.add(avatar);
+  const marker = new THREE.Mesh(new THREE.RingGeometry(0.06, 0.078, 32).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: "#ffd23f", toneMapped: false }));
+  marker.position.y = 0.004;
+  let me = null;
+  function makeAvatar() {
+    if (me) { avatar.remove(me.g); disposeGroup(me.g); }
+    me = makeFigure(ME);
+    avatar.add(me.g, marker);
+  }
+  const follow = { y: 0.025, dist: 0.6, up: 0.4 }; // smoothed so the camera doesn't jerk
+  function placeCamera(dt, snap = false) {
+    const { x, z, yaw, pitch, bob, moving, phase } = walker.state;
+    const ease = snap ? 1 : Math.min(1, dt * 12);
+    follow.y += (groundY(x, z) - follow.y) * ease;
+    avatar.visible = view !== "eyes";
+    marker.visible = view === "top";
+    avatar.position.set(x, follow.y, z);
+    me.g.rotation.y = yaw + Math.PI; // the models face +z, a walker with no turn faces -z
+    swingLimbs(me, moving ? Math.sin(phase) * 0.55 : 0);
+    let near = 0.015;
+    if (view === "eyes") {
+      camera.position.set(x, EYE + (moving ? Math.sin(bob) * 0.004 : 0), z);
+      camera.rotation.set(pitch, yaw, 0, "YXZ");
+    } else if (view === "top") {
+      const height = 1.6 * zoom;
+      camera.position.set(x, follow.y + height, z);
+      camera.rotation.set(-Math.PI / 2, yaw, 0, "YXZ"); // the way you face is up the screen
+      // under the raised metro, look through it
+      if (["metro", "metrostation"].includes(cellAt(Math.floor(x + N / 2), Math.floor(z + N / 2))?.t)) near = height - 0.38;
+    } else {
+      const side = view === "back" ? 1 : -1;
+      const hx = Math.sin(yaw) * side, hz = Math.cos(yaw) * side; // from the character towards the camera
+      const ty = follow.y + 0.15;
+      const want = 0.65 * zoom;
+      const base = THREE.MathUtils.clamp(0.38 - pitch, 0.02, 1.35);
+      // how far back the camera can go at this height before something is in the way
+      const reach = (up) => {
+        for (let d = 0.04; d <= want; d += 0.025) {
+          const flat = Math.cos(up) * d;
+          if (collision.hit(x + hx * flat, z + hz * flat, 0.025, ty + Math.sin(up) * d - 0.02)) return Math.max(0.08, d - 0.04);
+        }
+        return want;
+      };
+      let up = base;
+      for (const higher of [0, 0.3, 0.6, 0.9]) {
+        up = Math.min(1.4, base + higher);
+        if (reach(up) > want * 0.65) break;
+      }
+      follow.up += (up - follow.up) * (snap ? 1 : Math.min(1, dt * 6));
+      const free = reach(follow.up);
+      follow.dist = snap || free < follow.dist ? free : follow.dist + (free - follow.dist) * Math.min(1, dt * 4);
+      const flat = Math.cos(follow.up) * follow.dist;
+      camera.position.set(x + hx * flat, ty + Math.sin(follow.up) * follow.dist, z + hz * flat);
+      camera.lookAt(x, ty, z);
+    }
+    if (camera.fov !== FOV[view] || camera.near !== near) {
+      camera.fov = FOV[view];
+      camera.near = near;
+      camera.updateProjectionMatrix();
+    }
+  }
   const saved = { position: new THREE.Vector3(), target: new THREE.Vector3(), fov: 45 };
   const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 12, 16, 1, true), new THREE.MeshBasicMaterial({ color: "#ffd23f", transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
   beacon.visible = false;
@@ -1409,13 +1544,19 @@ export function createEngine(container, hooks, library, assets) {
     // turn towards them
     const dx = p.wx - walker.state.x, dz = p.wz - walker.state.z;
     walker.state.yaw = Math.atan2(-dx, -dz);
-    walker.state.pitch = -0.12;
+    if (view === "eyes") walker.state.pitch = -0.12;
     hooks.onTalk?.({ ...publicPerson(p), hello: greeting(p, worldNow()) });
   }
   function stepWalk(dt) {
     if (beacon.visible && (beaconTime -= dt) <= 0) beacon.visible = false;
     if (!walking) return;
     walker.update(dt);
+    // a turning vehicle may swing into us: step out of its way
+    vehicles.forEach((v) => {
+      const to = pushOut(v, walker.state.x, walker.state.z, PLAYER_R);
+      if (to && collision.canStand(to.x, to.z)) Object.assign(walker.state, to);
+    });
+    placeCamera(dt);
     const { x, z } = walker.state, d = viewDir();
     // whoever is closest in front of us can be spoken to
     let best = null, bestD = 0.6;
@@ -1443,15 +1584,17 @@ export function createEngine(container, hooks, library, assets) {
     controls.enabled = false;
     setHover(null);
     select(null);
-    camera.fov = 68;
-    camera.near = 0.015;
     camera.far = 400;
     camera.updateProjectionMatrix();
-    const spots = best ? [[wx(best.x) + 0.42, wx(best.z) + 0.42], [wx(best.x), wx(best.z)]] : [[0, 0]];
-    const [sx, sz] = spots.find(([a, b]) => canStand(a, b, N, cellAt)) || spots[0];
+    // face along the road, on a free spot of the pavement beside it (or failing that its middle)
     const open = [[0, 0, -1], [Math.PI / 2, -1, 0], [Math.PI, 0, 1], [-Math.PI / 2, 1, 0]].find(([, dx, dz]) => best && cellAt(best.x + dx, best.z + dz)?.t === "road");
+    const eastWest = !!open && open[1] !== 0;
+    const spots = best ? [[0.43, 0.15], [-0.43, -0.15], [0.43, -0.15], [-0.43, 0.15], [0, 0]].map(([across, ahead]) => [wx(best.x) + (eastWest ? ahead : across), wx(best.z) + (eastWest ? across : ahead)]) : [[0, 0]];
+    const [sx, sz] = spots.find(([a, b]) => collision.canStand(a, b) && !vehicles.some((v) => distance(v, a, b) < PLAYER_R)) || spots[spots.length - 1];
     lastHeading = "";
     walker.start(sx, sz, open ? open[0] : 0);
+    follow.up = 0.38;
+    placeCamera(0, true);
     hooks.onChange?.();
   }
   function stopWalk() {
@@ -1460,6 +1603,7 @@ export function createEngine(container, hooks, library, assets) {
     walking = false;
     nearPerson = null;
     walker.stop();
+    avatar.visible = false;
     beacon.visible = false;
     camera.fov = saved.fov;
     camera.near = 0.1;
@@ -1496,6 +1640,7 @@ export function createEngine(container, hooks, library, assets) {
       return g;
     });
   }
+  const GAP = 0.42 * TRAIN_SCALE; // from the middle of one carriage to the next
   const systems = [
     { klass: "rail", y: 0.06, speed: 0.9, make: makeRailCars, trains: [], sig: "", group: new THREE.Group() },
     { klass: "metro", y: 0.51, speed: 1.4, make: makeMetroCars, trains: [], sig: "", group: new THREE.Group() },
@@ -1522,40 +1667,63 @@ export function createEngine(container, hooks, library, assets) {
       sy.sig = sig;
       sy.trains.forEach((t) => { sy.group.remove(t.g); disposeGroup(t.g); });
       sy.trains = [];
-      const starts = tiles.filter(([x, z]) => nbrs(x, z, sy.klass).length);
+      let starts = tiles.filter(([x, z]) => nbrs(x, z, sy.klass).length);
       const want = starts.length < 4 ? 0 : Math.min(3, 1 + Math.floor(starts.length / 25));
       for (let i = 0; i < want; i++) {
+        if (!starts.length) break;
         const [x, z] = starts[Math.floor(Math.random() * starts.length)];
+        starts = starts.filter(([a, b]) => Math.hypot(a - x, b - z) > 7); // trains start well apart
         const pts = [[x, z]];
         for (let k = 0; k < 8; k++) { const n = nextTile(pts, sy.klass); if (!n) break; pts.push(n); }
         if (pts.length < 6) continue;
         const g = new THREE.Group();
         const cars = sy.make();
-        cars.forEach((c) => g.add(c));
+        cars.forEach((c) => { c.scale.setScalar(TRAIN_SCALE); g.add(c); });
         sy.group.add(g);
-        sy.trains.push({ g, cars, pts, s: 3.2, ang: cars.map(() => 0) });
+        sy.trains.push({ g, cars, pts, s: 3.2, ang: cars.map(() => 0), held: 0 });
       }
     });
   }
+  /* the point d tiles along a train's path */
+  function along(t, d) {
+    const k = Math.max(0, Math.min(Math.floor(d), t.pts.length - 2)), f = Math.min(1, d - k);
+    const a = t.pts[k], b = t.pts[k + 1];
+    return { x: wx(a[0] + (b[0] - a[0]) * f), z: wx(a[1] + (b[1] - a[1]) * f), yaw: Math.atan2(b[0] - a[0], b[1] - a[1]) };
+  }
+  /* what is on the track just ahead of the engine: "train", "person" or nothing */
+  function inTheWay(sy, t) {
+    const probes = [0.5, 0.7, 0.9].map((d) => along(t, t.s + d));
+    if (sy.trains.some((o) => o !== t && o.cars.some((c) => probes.some((q) => distance(trainShape(c), q.x, q.z) < 0.08)))) return "train";
+    const you = walker.state;
+    return sy.klass === "rail" && walking && probes.some((q) => Math.hypot(q.x - you.x, q.z - you.z) < 0.11 + PLAYER_R) ? "person" : null;
+  }
+  /* the driver changes ends and the train goes back the way it came */
+  function reverse(t) {
+    const tail = t.s - (t.cars.length - 1) * GAP;
+    t.pts.reverse();
+    t.s = t.pts.length - 1 - Math.max(0, tail);
+    t.ang = t.ang.reverse().map((a) => a + Math.PI);
+    t.held = 0;
+  }
   function stepTrains(dt) {
     systems.forEach((sy) => sy.trains.forEach((t) => {
-      t.s += sy.speed * dt;
+      while (t.pts.length < Math.floor(t.s) + 3) { const n = nextTile(t.pts, sy.klass); if (!n) break; t.pts.push(n); }
+      const stop = inTheWay(sy, t);
+      if (!stop) { t.s += sy.speed * dt; t.held = 0; }
+      else if (stop === "train" && (t.held += dt) > 2.5) reverse(t); // two trains nose to nose
       while (t.pts.length < Math.floor(t.s) + 3) { const n = nextTile(t.pts, sy.klass); if (!n) break; t.pts.push(n); }
       if (Math.floor(t.s) > 6) { t.pts.shift(); t.s -= 1; }
       t.cars.forEach((car, i) => {
-        const d = Math.max(0, t.s - i * 0.42);
-        const k = Math.min(Math.floor(d), t.pts.length - 2), f = d - k;
-        const a = t.pts[k], b = t.pts[k + 1];
-        if (!b) return;
-        car.position.set(wx(a[0] + (b[0] - a[0]) * f), sy.y, wx(a[1] + (b[1] - a[1]) * f));
-        t.ang[i] = lerpAng(t.ang[i], Math.atan2(b[0] - a[0], b[1] - a[1]), Math.min(1, dt * 8));
+        const q = along(t, Math.max(0, t.s - i * GAP));
+        car.position.set(q.x, sy.y, q.z);
+        t.ang[i] = lerpAng(t.ang[i], q.yaw, Math.min(1, dt * 8));
         car.rotation.y = t.ang[i];
       });
     }));
   }
 
   /* airliners: logic lives in flights.js */
-  const flights = createFlights({ N, cellAt, wx });
+  const flights = createFlights({ N, cellAt, wx, obstacle: () => (walking ? walker.state : null) });
   const planeGroup = new THREE.Group();
   scene.add(planeGroup);
   const planeMeshes = [];
@@ -1599,13 +1767,14 @@ export function createEngine(container, hooks, library, assets) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     stepCars(dt);
+    stepTrains(dt);
+    stepPlanes(dt);
+    vehicles = vehicleShapes();
     stepSignals(dt);
     stepPeople(dt);
     stepWalk(dt);
     stepSky(dt);
     stepSeason(dt);
-    stepTrains(dt);
-    stepPlanes(dt);
     if (!walking) controls.update();
     renderer.render(scene, camera);
   };
@@ -1618,6 +1787,7 @@ export function createEngine(container, hooks, library, assets) {
   } catch { grid = baseCity(); }
   setTime(hour);
   refreshAll();
+  makeAvatar();
   syncCars();
   syncPeople();
   syncTrains();
@@ -1654,6 +1824,7 @@ export function createEngine(container, hooks, library, assets) {
     });
     [...carViews.keys()].forEach(dropCar); // redraw with the detailed models
     [...peopleViews.keys()].forEach(dropPerson);
+    makeAvatar();
     systems.forEach((sy) => { sy.sig = ""; });
     refreshAll();
     groups.forEach((g) => { if (g.userData.parked) g.userData.parked.visible = !flights.isActive(); });
@@ -1664,7 +1835,7 @@ export function createEngine(container, hooks, library, assets) {
   }).catch((err) => { console.error(err); hooks.onError?.("Could not load the detailed models, so simple shapes are shown."); });
 
   const api = {
-    getState: () => ({ walking, building, people: peopleOn, tool, rot, sel, cell: sel ? cellAt(sel.x, sel.z) : null, canUndo: undo.length > 0, canRedo: redo.length > 0, name, hour, traffic: trafficOn, season, activeModel, models: library.list(), extent: sel && cellAt(sel.x, sel.z)?.t === "custom" ? library.extent(cellAt(sel.x, sel.z)) : null }),
+    getState: () => ({ walking, view, building, people: peopleOn, tool, rot, sel, cell: sel ? cellAt(sel.x, sel.z) : null, canUndo: undo.length > 0, canRedo: redo.length > 0, name, hour, traffic: trafficOn, season, activeModel, models: library.list(), extent: sel && cellAt(sel.x, sel.z)?.t === "custom" ? library.extent(cellAt(sel.x, sel.z)) : null }),
     stats() {
       const s = { residents: 0, jobs: 0, roads: 0, green: 0, buildings: 0, farms: 0, drains: 0, flowing: flow.size };
       grid.forEach((row) => row.forEach((c) => {
@@ -1754,6 +1925,16 @@ export function createEngine(container, hooks, library, assets) {
     resetCamera: () => { if (!walking) resetCamera(); },
     startWalk,
     stopWalk,
+    setView(v) {
+      if (!VIEWS.some(([k]) => k === v) || v === view) return;
+      view = v;
+      zoom = 1;
+      walker.state.pitch = 0;
+      follow.up = 0.38;
+      if (walking) placeCamera(0, true);
+      hooks.onChange?.();
+    },
+    nextView() { this.setView(VIEWS[(VIEWS.findIndex(([k]) => k === view) + 1) % VIEWS.length][0]); },
     setPeople: (on) => { peopleOn = on; if (!on) endTalk(); syncPeople(); hooks.onChange?.(); },
     walkHold: (action, on) => walker.hold(action, on),
     talkNearest() { if (walking && nearPerson) startTalk(nearPerson); },
@@ -1793,6 +1974,7 @@ export function createEngine(container, hooks, library, assets) {
       dom.removeEventListener("pointermove", onMove);
       dom.removeEventListener("pointerup", onUp);
       dom.removeEventListener("pointerleave", onLeave);
+      dom.removeEventListener("wheel", onWheel);
       controls.dispose();
       groups.forEach(disposeGroup);
       library.dispose();
