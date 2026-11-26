@@ -1,4 +1,5 @@
-"""Detailed Blender models that replace some Hobby Builder pieces: trees, plants, stones, car and bus.
+"""Detailed Blender models that replace some Hobby Builder pieces: trees, plants, stones,
+vehicles, trains, aircraft, boats and animals.
 
 Run:  blender --background --python blender/make_hobby_models.py
 
@@ -13,6 +14,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import *  # noqa: E402,F403
+import creatures  # noqa: E402
+import vehicles  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "models", "hobby.glb")
 
@@ -29,13 +32,7 @@ def foliage_mat(colour, tex="leaves"):
     return name
 
 
-def flat(colour, rough=0.7):
-    name = "flat_" + colour[1:]
-    if name not in MATS:
-        two_sided(name, colour, rough)
-    return name
-
-
+ROUND.update(min=0.07, max=0.12)
 material("bark", "#8a6446", 0.95, tex="bark", uv=0.9)
 material("palmbark", "#a58560", 0.95, tex="bark", uv=0.6)
 material("birchbark", "#ece8df", 0.85, tex="plaster", uv=0.8)
@@ -43,6 +40,8 @@ material("dead", "#7a6858", 0.95, tex="bark", uv=0.9)
 material("rock", "#9a9da1", 0.95, tex="concrete", uv=1.2)
 material("rock2", "#7d8084", 0.95, tex="gravel", uv=1.4)
 material("soil", "#5d4330", 1.0, tex="soil", uv=1.0)
+material("darkframe", "#2b2f35", 0.5, 0.2)
+material("trim", "#f2f2f0", 0.4)
 material("wood", "#a8743c", 0.8, tex="bark", uv=1.2)
 material("terracotta", "#c0603a", 0.85, tex="concrete", uv=0.8)
 material("stonerim", "#c9b98c", 0.9, tex="gravel", uv=0.8)
@@ -50,17 +49,6 @@ material("water", "#3c9bd6", 0.08, 0.2)
 material("cactusskin", "#4a9a55", 0.75, tex="plaster", uv=0.6)
 two_sided("frond", "#4aa83f", 0.7)
 two_sided("pad", "#3f9a45", 0.6)
-two_sided("color", "#ffffff", 0.55)
-two_sided("color_dark", "#ffffff", 0.65)
-material("color_paint", "#ffffff", 0.24, 0.12)
-material("glass", "#35566e", 0.06, 0.25)
-material("tyre", "#1b1b1d", 0.95)
-material("rubber", "#1b1b1d", 0.95)
-material("metal", "#c3c8ce", 0.3, 0.35)
-material("darkframe", "#2b2f35", 0.5, 0.2)
-material("trim", "#f2f2f0", 0.4)
-material("headlight", "#fff3b0", 0.2)
-material("taillight", "#d01012", 0.25)
 
 
 def add(p, q):
@@ -109,6 +97,9 @@ def blade(a, p, direction, length, width, mat):
     mid = add(p, mul(d, length * 0.55))
     tip = add(p, mul(d, length))
     a.face([p, add(mid, side), tip, sub(mid, side)], mat)
+
+
+vehicles.mats()
 
 
 # ---------------------------------------------------------------- trees
@@ -298,7 +289,7 @@ def limb(a, p, d, length, r, depth, mat):
 a = asset("deadtree")
 a.tube((1, 0, 1), (1, 0.9, 1), 0.2, 0.15, "dead", 10)
 for d in ((0.5, 1, 0.1), (-0.55, 0.9, -0.2), (0.05, 1, 0.45), (0, 1, -0.2)):
-    limb(a, (1, 0.85, 1), d, 0.95, 0.11, 3, "dead")
+    limb(a, (1, 0.85, 1), d, 0.78, 0.11, 3, "dead")
 
 a = asset("acacia")
 a.tube((2, 0, 2), (1.88, 1.3, 2), 0.24, 0.17, "bark", 11)
@@ -588,78 +579,25 @@ for _ in range(14):
     tuft(a, 1 + math.cos(t) * 0.9, 1 + math.sin(t) * 0.86, 0.2, random.uniform(0.15, 0.3), 0.0, L("#5a9a3c", "blades"))
 
 
-# ---------------------------------------------------------------- car and bus (front towards +z)
-def big_wheel(a, x, y, z, r, w):
-    a.tube((x - w / 2, y, z), (x + w / 2, y, z), r, r, "tyre", 24)
-    s = 1 if x > 1 else -1
-    face = x + s * w / 2
-    a.tube((face, y, z), (face + s * 0.012, y, z), r * 0.62, r * 0.6, "metal", 24)
-    a.tube((face + s * 0.012, y, z), (face + s * 0.03, y, z), r * 0.18, r * 0.12, "darkframe", 12)
-    for i in range(5):
-        t = math.tau * i / 5
-        a.tube((face + s * 0.018, y + math.cos(t) * r * 0.2, z + math.sin(t) * r * 0.2), (face + s * 0.014, y + math.cos(t) * r * 0.54, z + math.sin(t) * r * 0.54), 0.025, 0.03, "darkframe", 6)
+# ---------------------------------------------------------------- vehicles and animals
+vehicles.mats()
+ROAD = {"car": "sedan", "luxsedan": "lux", "sportsedan": "sport", "taxi": "taxi", "suv": "suv", "midsuv": "midsuv", "fullsuv": "fullsuv", "policecar": "police", "pickup": "pickup"}
+for key, kind in ROAD.items():
+    vehicles.car(asset(key), kind)
+vehicles.racecar(asset("racecar"))
+for key in ("van", "ambulance"):
+    vehicles.van(asset(key), key)
+for key, kind in (("bus", "city"), ("schoolbus", "school"), ("doubledecker", "double")):
+    vehicles.bus(asset(key), kind)
+for key, kind in (("truck", "box"), ("firetruck", "fire"), ("dumptruck", "dump"), ("cement", "cement"), ("crane", "crane")):
+    vehicles.truck(asset(key), kind)
+for key in ("rickshaw", "tractor", "excavator", "bulldozer", "bicycle", "kick", "scooter", "motorbike", "loco", "coach", "tram", "jet", "heli", "balloon", "rocket", "motorboat", "sailboat", "ship", "canoe", "submarine"):
+    getattr(vehicles, key)(asset(key))
+vehicles.freight(asset("wagon"))
+vehicles.airliner(asset("airplane"), 9.75, 7.9, 4.0, 1.06, 5.05, accent="color_paint", dark="black", glass="glass", metal="steel")
 
-
-def shell(a, width, profile, mat, taper=1.0, top=None):
-    """A side profile [(z, y)...] extruded across a body centred on x = 1."""
-    def X(y):
-        return width / 2 * (taper if top is not None and y > top else 1.0)
-
-    cz = sum(p[0] for p in profile) / len(profile)
-    cy = sum(p[1] for p in profile) / len(profile)
-    for (z0, y0), (z1, y1) in zip(profile, profile[1:] + profile[:1]):
-        a.solid([[(1 - X(y0), y0, z0), (1 + X(y0), y0, z0), (1 + X(y1), y1, z1), (1 - X(y1), y1, z1)]], mat, (1, cy, cz))
-    for s in (-1, 1):
-        a.solid([[(1 + s * X(y), y, z) for z, y in profile]], mat, (1, cy, cz))
-
-
-a = asset("car")
-shell(a, 1.7, [(0.14, 0.42), (0.34, 0.34), (3.62, 0.34), (3.86, 0.46), (3.9, 0.7), (3.78, 0.86), (3.2, 0.96), (2.8, 1.0), (0.42, 1.02), (0.12, 0.88), (0.09, 0.6)], "color_paint")
-shell(a, 1.62, [(0.5, 1.0), (2.82, 1.0), (2.3, 1.6), (2.05, 1.66), (1.1, 1.67), (0.82, 1.55)], "glass", 0.86, 1.3)
-shell(a, 1.34, [(0.98, 1.64), (2.18, 1.63), (2.02, 1.72), (1.14, 1.73)], "color_paint")
-for s in (-1, 1):
-    for z0, y0, z1, y1 in ((2.82, 1.0, 2.28, 1.62), (0.52, 1.0, 0.86, 1.56), (1.62, 1.0, 1.6, 1.64)):
-        a.tube((1 + s * 0.815, y0, z0), (1 + s * 0.705, y1, z1), 0.035, 0.035, "color_paint", 8)
-    for z in (0.86, 3.12):
-        a.tube((1 + s * 0.6, 0.42, z), (1 + s * 0.862, 0.42, z), 0.5, 0.5, "darkframe", 24)
-        big_wheel(a, 1 + s * 0.84, 0.42, z, 0.42, 0.28)
-    a.box(0.2, 0.14, 0.24, "color_paint", 1 + s * 0.93, 1.1, 2.66, 0.05)
-    a.box(0.012, 0.03, 0.2, "metal", 1 + s * 0.857, 0.84, 1.3)
-    a.box(0.012, 0.03, 0.2, "metal", 1 + s * 0.857, 0.84, 2.2)
-    a.box(0.008, 0.55, 0.012, "darkframe", 1 + s * 0.853, 0.68, 1.62)
-    a.box(0.38, 0.14, 0.05, "headlight", 1 + s * 0.55, 0.72, 3.885, 0.02)
-    a.box(0.36, 0.13, 0.05, "taillight", 1 + s * 0.57, 0.78, 0.1, 0.02)
-a.box(0.62, 0.2, 0.04, "darkframe", 1, 0.62, 3.9, 0.012)
-for y in (0.575, 0.625, 0.675):
-    a.box(0.58, 0.012, 0.012, "metal", 1, y, 3.922)
-a.box(1.66, 0.14, 0.16, "darkframe", 1, 0.42, 3.82, 0.045)
-a.box(1.66, 0.14, 0.16, "darkframe", 1, 0.46, 0.17, 0.045)
-a.box(0.44, 0.12, 0.012, "trim", 1, 0.62, 0.075)
-a.box(0.4, 0.1, 0.012, "trim", 1, 0.42, 3.91)
-
-a = asset("bus")
-a.box(1.76, 1.36, 5.78, "color_paint", 1, 1.04, 3.0, 0.2)
-a.box(1.62, 0.06, 5.4, "trim", 1, 1.75, 3.0, 0.025)
-a.box(0.9, 0.12, 1.3, "trim", 1, 1.82, 2.2, 0.04)
-for s in (-1, 1):
-    a.box(0.02, 0.5, 4.5, "glass", 1 + s * 0.88, 1.32, 2.7)
-    for i in range(8):
-        a.box(0.024, 0.52, 0.035, "darkframe", 1 + s * 0.882, 1.32, 0.45 + i * 0.643)
-    a.box(0.022, 0.07, 5.5, "trim", 1 + s * 0.882, 0.98, 3.0)
-    for z in (1.25, 4.65):
-        a.tube((1 + s * 0.7, 0.42, z), (1 + s * 0.892, 0.42, z), 0.5, 0.5, "darkframe", 24)
-        big_wheel(a, 1 + s * 0.855, 0.42, z, 0.42, 0.27)
-    a.box(0.12, 0.26, 0.14, "darkframe", 1 + s * 0.93, 1.35, 5.75, 0.035)
-    a.box(0.3, 0.16, 0.04, "headlight", 1 + s * 0.57, 0.62, 5.9, 0.015)
-    a.box(0.24, 0.18, 0.04, "taillight", 1 + s * 0.62, 0.7, 0.1, 0.015)
-a.box(0.024, 1.05, 0.62, "darkframe", 1.884, 0.92, 5.28)
-for z in (5.13, 5.43):
-    a.box(0.02, 0.92, 0.24, "glass", 1.895, 0.94, z)
-a.box(1.5, 0.72, 0.03, "glass", 1, 1.22, 5.9, 0.012)
-a.box(0.03, 0.74, 0.035, "darkframe", 1, 1.22, 5.915)
-a.box(1.4, 0.5, 0.03, "glass", 1, 1.3, 0.1, 0.012)
-a.box(1.0, 0.16, 0.03, "darkframe", 1, 1.66, 5.89, 0.01)
-for z in (0.14, 5.88):
-    a.box(1.7, 0.2, 0.16, "darkframe", 1, 0.44, z, 0.05)
+for key, build in creatures.ANIMALS.items():
+    random.seed(sum(map(ord, key)))
+    build(asset(key))
 
 export(OUT, "HOBBY")

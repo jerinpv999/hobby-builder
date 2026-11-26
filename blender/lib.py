@@ -8,7 +8,12 @@ import os
 import random
 
 import bpy
+import mathutils
+import mathutils.noise
 import numpy as np
+
+# boxes at least this thick get rounded edges (each script sets it to suit its units)
+ROUND = {"min": 0.03, "max": 0.03}
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 random.seed(7)
@@ -202,6 +207,21 @@ def material(name, colour, rough=0.8, metal=0.0, tex=None, uv=1.0, cutout=False)
     MATS[name] = (m, uv)
 
 
+def ensure(name, colour, rough=0.7, metal=0.0, two=False, alpha=1.0):
+    """A plain material, created the first time it is asked for."""
+    if name not in MATS:
+        material(name, colour, rough, metal)
+        if two:
+            MATS[name][0].use_backface_culling = False
+        if alpha < 1:
+            MATS[name][0].node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = alpha
+    return name
+
+
+def flat(colour, rough=0.75, metal=0.0):
+    return ensure("flat_" + colour[1:], colour, rough, metal, True)
+
+
 # ---------------------------------------------------------------- geometry
 def sub(a, b):
     return (a[0] - b[0], a[1] - b[1], a[2] - b[2])
@@ -215,55 +235,125 @@ def dot(a, b):
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
 
+def norm(v):
+    l = math.sqrt(dot(v, v))
+    return (v[0] / l, v[1] / l, v[2] / l) if l > 1e-12 else (0.0, 1.0, 0.0)
+
+
+def newell(pts):
+    n = [0.0, 0.0, 0.0]
+    for p, q in zip(pts, pts[1:] + pts[:1]):
+        n[0] += (p[1] - q[1]) * (p[2] + q[2])
+        n[1] += (p[2] - q[2]) * (p[0] + q[0])
+        n[2] += (p[0] - q[0]) * (p[1] + q[1])
+    return tuple(n)
+
+
+def plan(w, d, r, n=6):
+    """A rounded-rectangle floor plan: [(x, z, nx, nz)] going round the building."""
+    r = max(min(r, w / 2, d / 2), 1e-4)
+    out = []
+    for q, (sx, sz) in enumerate(((1, 1), (-1, 1), (-1, -1), (1, -1))):
+        cx, cz = sx * (w / 2 - r), sz * (d / 2 - r)
+        for k in range(n + 1):
+            t = math.pi / 2 * (q + k / n)
+            out.append((cx + math.cos(t) * r, cz + math.sin(t) * r, math.cos(t), math.sin(t)))
+    return out
+
+
+def oval(w, d, e=4.0, n=48):
+    """A superellipse floor plan (e=2 is an ellipse, larger is squarer)."""
+    out = []
+    for i in range(n):
+        t = math.tau * (i + 0.5) / n
+        c, s = math.cos(t), math.sin(t)
+        x = w / 2 * math.copysign(abs(c) ** (2 / e), c)
+        z = d / 2 * math.copysign(abs(s) ** (2 / e), s)
+        nx = math.copysign(abs(x / (w / 2)) ** (e - 1), x) / (w / 2)
+        nz = math.copysign(abs(z / (d / 2)) ** (e - 1), z) / (d / 2)
+        l = math.hypot(nx, nz) or 1
+        out.append((x, z, nx / l, nz / l))
+    return out
+
+
 class Asset:
     def __init__(self):
-        self.faces = []  # (points, uvs or None, material, smooth)
+        self.faces = []  # (points, uvs or None, material, smooth, normals or None)
 
-    def face(self, pts, mat, uv=None, smooth=False):
-        self.faces.append((pts, uv, mat, smooth))
+    def face(self, pts, mat, uv=None, smooth=False, normals=None):
+        self.faces.append((list(pts), uv, mat, smooth, normals))
 
-    def solid(self, faces, mat, centre, smooth=False):
+    def solid(self, faces, mat, centre, smooth=False, normals=None):
         """Faces of a convex solid: wind each one so it points away from the centre."""
-        for pts in faces:
-            n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))
+        for k, pts in enumerate(faces):
+            ns = normals[k] if normals else None
+            n = newell(list(pts))
             mid = tuple(sum(p[i] for p in pts) / len(pts) for i in range(3))
             if dot(n, sub(mid, centre)) < 0:
                 pts = pts[::-1]
-            self.face(pts, mat, smooth=smooth)
+                ns = ns[::-1] if ns else None
+            self.face(pts, mat, smooth=smooth, normals=ns)
 
-    def box(self, w, h, d, mat, x=0.0, y=0.0, z=0.0, bevel=0.0, ry=0.0):
-        """Centre at (x, y, z); ry turns it about the vertical axis."""
-        hx, hy, hz = w / 2, h / 2, d / 2
-        b = min(bevel, hx * 0.4, hy * 0.4, hz * 0.4)
+    def merge(self, other, scale=1.0, offset=(0, 0, 0), rename=None, ry=0.0):
+        """Copy another asset's faces in, uniformly scaled, turned and moved."""
         c, s = math.cos(ry), math.sin(ry)
 
-        def P(px, py, pz):
-            return (x + px * c + pz * s, y + py, z - px * s + pz * c)
+        def turn(v):
+            return (v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c)
 
-        faces = []
-        # each corner has three points once the edges are cut
-        def X(i, j, k):
-            return P(i * hx, j * (hy - b), k * (hz - b))
+        for pts, uv, mat, smooth, ns in other.faces:
+            moved = [tuple(turn(p)[i] * scale + offset[i] for i in range(3)) for p in pts]
+            self.face(moved, (rename or {}).get(mat, mat), uv, smooth, [turn(n) for n in ns] if ns else None)
 
-        def Y(i, j, k):
-            return P(i * (hx - b), j * hy, k * (hz - b))
+    def box(self, w, h, d, mat, x=0.0, y=0.0, z=0.0, bevel=0.0, ry=0.0, seg=None):
+        """Centre at (x, y, z); ry turns it about the vertical axis.
+        Chunky boxes get properly rounded edges; thin slivers stay sharp to save triangles."""
+        hx, hy, hz = w / 2, h / 2, d / 2
+        least = min(w, h, d)
+        r = 0.0
+        if least >= ROUND["min"]:
+            r = min(max(bevel, min(least * 0.24, ROUND["max"])), least * 0.48)
+        c, s = math.cos(ry), math.sin(ry)
 
-        def Z(i, j, k):
-            return P(i * (hx - b), j * (hy - b), k * hz)
+        def turn(px, py, pz):
+            return (px * c + pz * s, py, -px * s + pz * c)
 
-        for i in (-1, 1):
-            faces.append([X(i, -1, -1), X(i, 1, -1), X(i, 1, 1), X(i, -1, 1)])
-            faces.append([Y(-1, i, -1), Y(1, i, -1), Y(1, i, 1), Y(-1, i, 1)])
-            faces.append([Z(-1, -1, i), Z(1, -1, i), Z(1, 1, i), Z(-1, 1, i)])
-        if b > 0:
-            for i in (-1, 1):
-                for j in (-1, 1):
-                    faces.append([X(i, j, -1), X(i, j, 1), Y(i, j, 1), Y(i, j, -1)])
-                    faces.append([X(i, -1, j), X(i, 1, j), Z(i, 1, j), Z(i, -1, j)])
-                    faces.append([Y(-1, i, j), Y(1, i, j), Z(1, i, j), Z(-1, i, j)])
-                    for k in (-1, 1):
-                        faces.append([X(i, j, k), Y(i, j, k), Z(i, j, k)])
-        self.solid(faces, mat, (x, y, z))
+        def place(p):
+            q = turn(*p)
+            return (x + q[0], y + q[1], z + q[2])
+
+        if r <= 0:
+            corners = [[(i, a_, b_) for a_, b_ in ((-1, -1), (1, -1), (1, 1), (-1, 1))] for i in (-1, 1)]
+            faces = []
+            for face_ in corners:
+                faces.append([place((i * hx, j * hy, k * hz)) for i, j, k in face_])
+                faces.append([place((j * hx, i * hy, k * hz)) for i, j, k in face_])
+                faces.append([place((j * hx, k * hy, i * hz)) for i, j, k in face_])
+            self.solid(faces, mat, (x, y, z))
+            return
+        steps = seg or (3 if least >= ROUND["min"] * 4 else 1)
+        half = (hx, hy, hz)
+
+        def lines(h_):
+            inner = h_ - r
+            t = [math.tan(math.pi / 4 * k / steps) * r for k in range(steps + 1)]
+            return [-inner - v for v in t[::-1]] + [inner + v for v in t]
+
+        for axis in range(3):
+            u, v = (axis + 1) % 3, (axis + 2) % 3
+            for sign in (-1, 1):
+                lu, lv = lines(half[u]), lines(half[v])
+                for i in range(len(lu) - 1):
+                    for j in range(len(lv) - 1):
+                        pts, ns = [], []
+                        for a_, b_ in ((i, j), (i + 1, j), (i + 1, j + 1), (i, j + 1)):
+                            p = [0.0, 0.0, 0.0]
+                            p[axis], p[u], p[v] = sign * half[axis], lu[a_], lv[b_]
+                            q = [max(-(half[k] - r), min(half[k] - r, p[k])) for k in range(3)]
+                            n = norm(sub(p, q))
+                            pts.append(place(tuple(q[k] + n[k] * r for k in range(3))))
+                            ns.append(turn(*n))
+                        self.solid([pts], mat, (x, y, z), True, [ns])
 
     def tube(self, p0, p1, r0, r1, mat, seg=10, caps=True, smooth=True):
         """A (tapered) cylinder between two points."""
@@ -271,27 +361,35 @@ class Asset:
         length = math.sqrt(dot(axis, axis)) or 1e-6
         a = tuple(v / length for v in axis)
         ref = (0, 1, 0) if abs(a[1]) < 0.9 else (1, 0, 0)
-        u = cross(a, ref)
-        ul = math.sqrt(dot(u, u))
-        u = tuple(v / ul for v in u)
+        u = norm(cross(a, ref))
         v = cross(a, u)
-
-        def ring(p, r):
-            return [tuple(p[i] + r * (math.cos(math.tau * k / seg) * u[i] + math.sin(math.tau * k / seg) * v[i]) for i in range(3)) for k in range(seg)]
-
-        A, B = ring(p0, r0), ring(p1, max(r1, 1e-4))
+        r1 = max(r1, 1e-4)
+        dirs = [tuple(math.cos(math.tau * k / seg) * u[i] + math.sin(math.tau * k / seg) * v[i] for i in range(3)) for k in range(seg)]
+        A = [tuple(p0[i] + r0 * q[i] for i in range(3)) for q in dirs]
+        B = [tuple(p1[i] + r1 * q[i] for i in range(3)) for q in dirs]
+        N = [norm(tuple(q[i] * length + a[i] * (r0 - r1) for i in range(3))) for q in dirs]
         centre = tuple((p0[i] + p1[i]) / 2 for i in range(3))
-        self.solid([[A[k], A[(k + 1) % seg], B[(k + 1) % seg], B[k]] for k in range(seg)], mat, centre, smooth)
+        for k in range(seg):
+            j = (k + 1) % seg
+            self.solid([[A[k], A[j], B[j], B[k]]], mat, centre, smooth, [[N[k], N[j], N[j], N[k]]] if smooth else None)
         if caps:
             self.solid([A, B], mat, centre)
+
+    def capsule(self, p0, p1, r0, r1, mat, seg=12):
+        """A tube with rounded ends."""
+        self.tube(p0, p1, r0, r1, mat, seg, caps=False)
+        self.ball(*p0, r0, r0, r0, mat, seg, max(6, seg // 2 + 1))
+        self.ball(*p1, r1, r1, r1, mat, seg, max(6, seg // 2 + 1))
 
     def ball(self, x, y, z, rx, ry, rz, mat, seg=10, rings=7, top_only=False):
         def P(i, j):
             th = math.pi / (2 if top_only else 1) * j / rings
-            ph = math.tau * i / seg
+            ph = math.tau * (i % seg) / seg
             return (x + rx * math.sin(th) * math.cos(ph), y + ry * math.cos(th), z + rz * math.sin(th) * math.sin(ph))
 
-        faces = []
+        def N(p):
+            return norm(((p[0] - x) / (rx * rx), (p[1] - y) / (ry * ry), (p[2] - z) / (rz * rz)))
+
         for j in range(rings):
             for i in range(seg):
                 q = [P(i, j), P(i + 1, j), P(i + 1, j + 1), P(i, j + 1)]
@@ -299,8 +397,121 @@ class Asset:
                     q = [q[0], q[2], q[3]]
                 elif j == rings - 1 and not top_only:
                     q = q[:3]
-                faces.append(q)
-        self.solid(faces, mat, (x, y, z), True)
+                self.solid([q], mat, (x, y, z), True, [[N(p) for p in q]])
+
+    def torus(self, centre, big, small, mat, axis="x", seg=24, sides=10, start=0.0, sweep=math.tau):
+        def P(i, j):
+            t = start + sweep * i / seg
+            ph = math.tau * j / sides
+            ring = (math.cos(t), math.sin(t))
+            n = (math.cos(ph) * ring[0], math.cos(ph) * ring[1], math.sin(ph))
+            p = (ring[0] * big + n[0] * small, ring[1] * big + n[1] * small, n[2] * small)
+
+            def to(v):
+                if axis == "x":
+                    return (v[2], v[1], v[0])
+                if axis == "y":
+                    return (v[0], v[2], v[1])
+                return v
+
+            return tuple(centre[k] + to(p)[k] for k in range(3)), to(n)
+
+        for i in range(seg):
+            for j in range(sides):
+                q = [P(i, j), P(i + 1, j), P(i + 1, j + 1), P(i, j + 1)]
+                pts, ns = [a_[0] for a_ in q], [a_[1] for a_ in q]
+                if dot(newell(pts), ns[0]) < 0:
+                    pts, ns = pts[::-1], ns[::-1]
+                self.face(pts, mat, smooth=True, normals=ns)
+
+    def extrude(self, ring, y0, y1, mat, x=0.0, z=0.0, top=True, bottom=False, paint=None):
+        """Walls following a floor plan from plan() or oval(), with smooth corners."""
+        for i, (a_, b_) in enumerate(zip(ring, ring[1:] + ring[:1])):
+            pts = [(x + a_[0], y0, z + a_[1]), (x + b_[0], y0, z + b_[1]), (x + b_[0], y1, z + b_[1]), (x + a_[0], y1, z + a_[1])]
+            ns = [(a_[2], 0, a_[3]), (b_[2], 0, b_[3]), (b_[2], 0, b_[3]), (a_[2], 0, a_[3])]
+            if math.dist(pts[0], pts[1]) < 1e-6:
+                continue
+            if dot(newell(pts), ns[0]) < 0:
+                pts, ns = pts[::-1], ns[::-1]
+            self.face(pts, paint(i) if paint else mat, smooth=True, normals=ns)
+        if top:
+            self.face([(x + p[0], y1, z + p[1]) for p in ring][::-1], mat)
+        if bottom:
+            self.face([(x + p[0], y0, z + p[1]) for p in ring], mat)
+
+    def band(self, outer, inner, y0, y1, mat, x=0.0, z=0.0):
+        """A ring-shaped wall (a parapet or a ledge) between two floor plans with equal point counts."""
+        self.extrude(outer, y0, y1, mat, x, z, top=False)
+        n = len(outer)
+        for i in range(n):
+            j = (i + 1) % n
+            for pts in ([(x + inner[i][0], y1, z + inner[i][1]), (x + inner[j][0], y1, z + inner[j][1]), (x + inner[j][0], y0, z + inner[j][1]), (x + inner[i][0], y0, z + inner[i][1])],
+                        [(x + outer[i][0], y1, z + outer[i][1]), (x + outer[j][0], y1, z + outer[j][1]), (x + inner[j][0], y1, z + inner[j][1]), (x + inner[i][0], y1, z + inner[i][1])]):
+                if dot(newell(pts), newell(pts)) > 1e-16:
+                    flat_top = abs(pts[2][1] - y1) < 1e-9 and abs(pts[0][1] - y1) < 1e-9 and abs(pts[3][1] - y1) < 1e-9
+                    nn = newell(pts)
+                    if flat_top and nn[1] < 0:
+                        pts = pts[::-1]
+                    elif not flat_top:
+                        mid = ((pts[0][0] + pts[1][0]) / 2 - x, 0, (pts[0][2] + pts[1][2]) / 2 - z)
+                        if dot(nn, mid) > 0:
+                            pts = pts[::-1]
+                    self.face(pts, mat)
+
+    def vault(self, width, rise, length, mat, x=0.0, y=0.0, z=0.0, along="z", seg=20, ends=None):
+        """An arched roof: half an ellipse across `width`, running for `length`."""
+        def P(i, s):
+            t = math.pi * i / seg
+            a_, up = -math.cos(t) * width / 2, math.sin(t) * rise
+            n = norm((-math.cos(t) / (width / 2), math.sin(t) / max(rise, 1e-4), 0))
+            if along == "z":
+                return (x + a_, y + up, z + s * length / 2), n
+            return (x + s * length / 2, y + up, z + a_), (0, n[1], n[0])
+
+        for i in range(seg):
+            q = [P(i, -1), P(i + 1, -1), P(i + 1, 1), P(i, 1)]
+            pts, ns = [c_[0] for c_ in q], [c_[1] for c_ in q]
+            if dot(newell(pts), ns[0]) < 0:
+                pts, ns = pts[::-1], ns[::-1]
+            self.face(pts, mat, smooth=True, normals=ns)
+        if ends:
+            for s in (-1, 1):
+                pts = [P(i, s)[0] for i in range(seg + 1)]
+                out = (0, 0, s) if along == "z" else (s, 0, 0)
+                if dot(newell(pts), out) < 0:
+                    pts = pts[::-1]
+                self.face(pts, ends)
+
+    def loft(self, rings, mat, caps=True, paint=None):
+        """A smooth skin over a row of closed cross-sections (each the same number of points)."""
+        n = len(rings[0])
+        mids = [tuple(sum(p[k] for p in r) / n for k in range(3)) for r in rings]
+        normals = []
+        for i, ring in enumerate(rings):
+            row = []
+            for j in range(n):
+                along = sub(rings[min(i + 1, len(rings) - 1)][j], rings[max(i - 1, 0)][j])
+                around = sub(ring[(j + 1) % n], ring[(j - 1) % n])
+                v = norm(cross(around, along))
+                if dot(v, sub(ring[j], mids[i])) < 0:
+                    v = (-v[0], -v[1], -v[2])
+                row.append(v)
+            normals.append(row)
+        for i in range(len(rings) - 1):
+            for j in range(n):
+                k = (j + 1) % n
+                pts = [rings[i][j], rings[i][k], rings[i + 1][k], rings[i + 1][j]]
+                ns = [normals[i][j], normals[i][k], normals[i + 1][k], normals[i + 1][j]]
+                if dot(newell(pts), ns[0]) < 0:
+                    pts, ns = pts[::-1], ns[::-1]
+                mid = tuple(sum(p[c] for p in pts) / 4 for c in range(3))
+                self.face(pts, paint(mid) if paint else mat, smooth=True, normals=ns)
+        if caps:
+            for i, other in ((0, 1), (len(rings) - 1, len(rings) - 2)):
+                pts = rings[i]
+                if dot(newell(pts), sub(mids[i], mids[other])) < 0:
+                    pts = pts[::-1]
+                self.face(pts, paint(mids[i]) if paint else mat)
 
     def prism(self, w, h, d, mat, x=0.0, y=0.0, z=0.0, along="z", gable=None):
         """Gable roof: base at height y, ridge h above it, running along z (or x)."""
@@ -313,6 +524,8 @@ class Asset:
         centre = P(0, h / 3, 0)
         self.solid([[L0, T0, T1, L1], [R0, T0, T1, R1], [L0, R0, R1, L1]], mat, centre)
         self.solid([[L0, R0, T0], [L1, R1, T1]], gable or mat, centre)
+        ridge = ROUND["min"] * 0.6
+        self.tube(T0, T1, ridge, ridge, mat, 8)  # rounded ridge tiles
 
     def card(self, centre, right, up, mat):
         """A textured quad (leaves, crops): full texture, seen from both sides."""
@@ -322,22 +535,47 @@ class Asset:
 
     def make(self, name):
         names = []
-        verts, polys, uvs, idx, smooth = [], [], [], [], []
-        for pts, uv, mat, sm in self.faces:
+        verts, polys, uvs, idx, loop_normals = [], [], [], [], []
+        welded = {}
+        for pts, uv, mat, smooth, ns in self.faces:
+            nn = newell(pts)
+            if dot(nn, nn) < 1e-20:
+                continue
+            flat_n = norm(nn)
+            m, scale = MATS[mat][0], MATS[mat][1]
+            if uv is None:
+                textured = any(nd.type == "TEX_IMAGE" for nd in m.node_tree.nodes)
+                if not textured:
+                    uv = [(0, 0)] * len(pts)
+                else:  # box projection in world units
+                    ax = max(range(3), key=lambda i: abs(nn[i]))
+                    pick = {0: (2, 1), 1: (0, 2), 2: (0, 1)}[ax]
+                    uv = [(p[pick[0]] / scale, p[pick[1]] / scale) for p in pts]
+            poly, puv, pn = [], [], []
+            for k, p in enumerate(pts):
+                if smooth:
+                    key = (round(p[0], 5), round(p[1], 5), round(p[2], 5))
+                    if key not in welded:
+                        welded[key] = len(verts)
+                        verts.append((p[0], -p[2], p[1]))
+                    v = welded[key]
+                else:
+                    v = len(verts)
+                    verts.append((p[0], -p[2], p[1]))
+                if v in poly:
+                    continue
+                poly.append(v)
+                puv.append(uv[k])
+                n = ns[k] if ns else flat_n
+                pn.append((n[0], -n[2], n[1]))
+            if len(poly) < 3:
+                continue
             if mat not in names:
                 names.append(mat)
-            scale = MATS[mat][1]
-            if uv is None:  # box projection in world units
-                n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))
-                ax = max(range(3), key=lambda i: abs(n[i]))
-                pick = {0: (2, 1), 1: (0, 2), 2: (0, 1)}[ax]
-                uv = [(p[pick[0]] / scale, p[pick[1]] / scale) for p in pts]
-            start = len(verts)
-            verts.extend((p[0], -p[2], p[1]) for p in pts)
-            polys.append(list(range(start, start + len(pts))))
-            uvs.extend(uv)
+            polys.append(poly)
+            uvs.extend(puv)
+            loop_normals.extend(pn)
             idx.append(names.index(mat))
-            smooth.append(sm)
         me = bpy.data.meshes.new(name)
         me.from_pydata(verts, [], polys)
         layer = me.uv_layers.new()
@@ -345,16 +583,67 @@ class Asset:
         for n in names:
             me.materials.append(MATS[n][0])
         me.polygons.foreach_set("material_index", idx)
-        me.polygons.foreach_set("use_smooth", smooth)
-        if any(smooth):  # weld shared points so smooth faces shade smoothly
-            import bmesh
-            bm = bmesh.new()
-            bm.from_mesh(me)
-            bmesh.ops.remove_doubles(bm, verts=[v for v in bm.verts if all(f.smooth for f in v.link_faces)], dist=1e-5)
-            bm.to_mesh(me)
-            bm.free()
+        me.polygons.foreach_set("use_smooth", [True] * len(polys))
+        me.normals_split_custom_set(loop_normals)  # exact smooth or flat normals, per corner
         ob = bpy.data.objects.new(name, me)
         bpy.context.scene.collection.objects.link(ob)
+
+
+def blob(target, parts, paint, voxel, tris=3000, smooth=4, bumps=0.0, bump_scale=3.0):
+    """Fuse overlapping shapes into one seamless skin with Blender's voxel remesh, smooth and
+    decimate it, and add it to `target`. `paint` is a material name or a function of position."""
+    welded, verts, polys = {}, [], []
+    for pts, *_ in parts.faces:
+        poly = []
+        for p in pts:
+            key = (round(p[0], 5), round(p[1], 5), round(p[2], 5))
+            if key not in welded:
+                welded[key] = len(verts)
+                verts.append((p[0], -p[2], p[1]))
+            if welded[key] not in poly:
+                poly.append(welded[key])
+        if len(poly) > 2:
+            polys.append(poly)
+    me = bpy.data.meshes.new("blob")
+    me.from_pydata(verts, [], polys)
+    ob = bpy.data.objects.new("blob", me)
+    bpy.context.scene.collection.objects.link(ob)
+    rem = ob.modifiers.new("remesh", "REMESH")
+    rem.mode = "VOXEL"
+    rem.voxel_size = voxel
+    sm = ob.modifiers.new("smooth", "SMOOTH")
+    sm.iterations = smooth
+    sm.factor = 0.6
+
+    def evaluated():
+        dg = bpy.context.evaluated_depsgraph_get()
+        return bpy.data.meshes.new_from_object(ob.evaluated_get(dg))
+
+    first = evaluated()
+    first.calc_loop_triangles()
+    count = len(first.loop_triangles)
+    bpy.data.meshes.remove(first)
+    dec = ob.modifiers.new("decimate", "DECIMATE")
+    dec.ratio = min(1.0, tris / max(count, 1))
+    out = evaluated()
+    if bumps:
+        out.update()
+        normals = [v.normal.copy() for v in out.vertices]
+        for v, n in zip(out.vertices, normals):
+            v.co += n * (mathutils.noise.fractal(v.co * bump_scale, 1.0, 2.0, 3) * bumps)
+        out.update()
+    out.calc_loop_triangles()
+    for tri in out.loop_triangles:
+        pts, ns = [], []
+        for i in tri.vertices:
+            co, n = out.vertices[i].co, out.vertices[i].normal
+            pts.append((co.x, max(co.z, 0.0), -co.y))
+            ns.append((n.x, n.z, -n.y))
+        mid = tuple(sum(p[k] for p in pts) / 3 for k in range(3))
+        target.face(pts, paint(mid) if callable(paint) else paint, smooth=True, normals=ns)
+    bpy.data.meshes.remove(out)
+    bpy.data.objects.remove(ob)
+    bpy.data.meshes.remove(me)
 
 
 ASSETS = {}
@@ -371,7 +660,9 @@ def export(path, tag):
         a.make(name)
         tris += sum(len(f[0]) - 2 for f in a.faces)
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_apply=False, export_yup=True, export_image_format="AUTO", export_cameras=False, export_lights=False, export_animations=False)
+    bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", export_apply=False, export_yup=True, export_image_format="AUTO", export_cameras=False, export_lights=False, export_animations=False,
+                              export_draco_mesh_compression_enable=True, export_draco_mesh_compression_level=6,
+                              export_draco_position_quantization=14, export_draco_normal_quantization=10, export_draco_texcoord_quantization=12)
     print(f"{tag} {len(ASSETS)} assets, {tris} triangles, {os.path.getsize(path) / 1e6:.2f} MB -> {os.path.abspath(path)}")
 
 

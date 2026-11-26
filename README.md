@@ -483,13 +483,17 @@ The code is in `src/city/` (`engine.js` is the three.js scene and rules, `CityBu
 
 ## Detailed models (Blender)
 
-Buildings, vehicles, planes, trees, crops, cows and other city objects, plus 43 Hobby Builder pieces (all trees, flowering plants, plants and stones, the car and the bus), are modelled by Blender scripts.
+Buildings, vehicles, planes, trees, crops, cows and other city objects, plus 110 Hobby Builder pieces (trees, flowering plants, plants and stones, road and construction vehicles, two-wheelers, trains and trams, aircraft, boats, pets and animals), are modelled by Blender scripts.
 
 | File | Builds |
 |---|---|
 | `blender/make_models.py` | `public/models/city.glb` (city builder) |
 | `blender/make_hobby_models.py` | `public/models/hobby.glb` (Hobby Builder pieces, and imported creations in the city) |
+| `blender/vehicles.py` | road, rail, air and water vehicles (used by both) |
+| `blender/creatures.py` | pets and animals (the city borrows the cow) |
 | `blender/lib.py` | shared textures, materials and shape helpers |
+
+The `.glb` files are Draco-compressed. The decoder the browser needs is in `public/draco/` (copied from `three/examples/jsm/libs/draco/gltf/`; copy it again after upgrading three).
 
 After editing a script, rebuild its file (Blender 4.4) and commit the `.glb`:
 

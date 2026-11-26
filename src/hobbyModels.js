@@ -2,8 +2,8 @@
    (blender/make_hobby_models.py -> public/models/hobby.glb). Footprints and heights are unchanged,
    so saved builds look the same apart from the detail. If the file can't be loaded, the simple pieces stay. */
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { TYPES } from "./hobbyBuilderPieces";
+import { modelLoader } from "./modelLoader";
 
 const materials = new Map();
 
@@ -17,6 +17,7 @@ function materialFor(base, color) {
       m.color.set(color);
       if (base.name === "color_dark") m.color.multiplyScalar(0.62);
     }
+    if (base.transparent) m.depthWrite = false; // glass and water: don't hide what is inside
     if (base.alphaTest > 0) {
       m.side = THREE.DoubleSide;
       m.color.multiplyScalar(1.5); // the leaf texture darkens the colour, so lift it back
@@ -52,6 +53,6 @@ function useModels(gltf) {
 /* Resolves when the models are in place, or after `timeout` ms so a slow network never blocks the app. */
 export function loadHobbyModels(timeout = 8000) {
   const url = `${import.meta.env.BASE_URL}models/hobby.glb`;
-  const load = new GLTFLoader().loadAsync(url).then(useModels).catch((err) => console.warn("Detailed models not loaded:", err));
+  const load = modelLoader().loadAsync(url).then(useModels).catch((err) => console.warn("Detailed models not loaded:", err));
   return Promise.race([load, new Promise((resolve) => setTimeout(resolve, timeout))]);
 }

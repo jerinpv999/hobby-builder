@@ -1208,9 +1208,11 @@ export function createEngine(container, hooks, library, assets) {
     const [x, z] = spots[Math.floor(Math.random() * spots.length)];
     const [nx, nz] = options(x, z)[Math.floor(Math.random() * options(x, z).length)];
     const g = new THREE.Group();
-    const paint = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+    const kinds = ["car", "car", "car", "car_suv", "car_suv", "car_taxi", "car_van", "car_bus", "car_truck"];
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const paint = kind === "car_taxi" ? "#f2c230" : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
     const bm = new THREE.MeshStandardMaterial({ color: paint, roughness: 0.4 });
-    if (ASSETS?.ready) g.add(ASSETS.model("car", { carpaint: paint }));
+    if (ASSETS?.ready) g.add(ASSETS.model(kind, { carpaint: paint }));
     else {
       const b = new THREE.Mesh(bodyGeo, bm); b.position.y = 0.065; b.castShadow = true;
       const c = new THREE.Mesh(cabGeo, cabMat); c.position.set(0, 0.11, -0.01); c.castShadow = true;
@@ -1407,7 +1409,8 @@ export function createEngine(container, hooks, library, assets) {
     if (name === "tintglass") Object.assign(m, { metalness: 0.35, roughness: 0.12 });
     if (name === "greenglass") Object.assign(m, { transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
     if (["leaf", "pine", "crop"].includes(name)) { m.alphaTest = 0.5; m.side = THREE.DoubleSide; }
-    const still = !["carpaint", "tail", "rubber", "glass", "glasslit", "tintglass"].includes(name);
+    // moving things (names starting v_, and paint) stay clear of snow
+    const still = !name.startsWith("v_") && !["carpaint", "tail", "rubber", "glass", "glasslit", "tintglass"].includes(name);
     return addSnow(m, still ? (name === "water" ? 0.2 : 0.75) : 0);
   });
   assets?.load().then(() => {
@@ -1417,6 +1420,14 @@ export function createEngine(container, hooks, library, assets) {
     groundMat.map = grass;
     groundMat.needsUpdate = true;
     makePlaneMeshes();
+    birds.forEach((b) => {
+      b.g.clear();
+      const left = assets.model("bird_wing"), right = assets.model("bird_wing");
+      right.scale.x = -1;
+      b.g.add(assets.model("bird_body"), left, right);
+      b.wl = left;
+      b.wr = right;
+    });
     cars.splice(0).forEach((c) => { carGroup.remove(c.g); c.bm.dispose(); });
     systems.forEach((sy) => { sy.sig = ""; });
     refreshAll();

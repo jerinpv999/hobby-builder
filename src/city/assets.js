@@ -2,8 +2,8 @@
    Buildings are assembled from a ground floor, repeated floors and a roof, then merged by
    material and cached, so every copy of the same building shares its geometry. */
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { modelLoader } from "../modelLoader";
 
 // floor height of each stacked building (matches the heights used for lamps and flight clearance)
 const FLOORS = { house: 0.32, apartment: 0.28, shop: 0.3, tower: 0.3, office: 0.28, hotel: 0.27, mall: 0.3, hospital: 0.3, school: 0.28, firestation: 0.3, terminal: 0.28, factory: 0.3 };
@@ -81,7 +81,7 @@ export function createAssets(url) {
   let loading = null;
 
   function load() {
-    loading ||= new GLTFLoader().loadAsync(url).then((gltf) => {
+    loading ||= modelLoader().loadAsync(url).then((gltf) => {
       gltf.scene.updateMatrixWorld(true);
       for (const root of gltf.scene.children) {
         const list = [];

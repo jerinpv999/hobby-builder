@@ -15,6 +15,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib import *  # noqa: E402,F403
+import creatures  # noqa: E402
+import vehicles  # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "public", "models", "city.glb")
 
@@ -575,21 +577,6 @@ for _ in range(14):
     sz = random.choice((-1, 1)) * random.choice((0.12, 0.44))
     leaf_cloud(a, sx, 0.05, sz, 0.045, 0.035, 8, 0.028)
 
-a = asset("cow")
-a.ball(0, 0.115, 0, 0.062, 0.058, 0.115, "hide", 12, 9)
-for x, y, z, r in ((0.048, 0.125, 0.03, 0.028), (-0.047, 0.11, -0.045, 0.034), (0.01, 0.158, -0.02, 0.027)):
-    a.ball(x, y, z, r * 0.7, r * 0.65, r, "black", 8, 5)
-a.tube((0, 0.13, 0.09), (0, 0.175, 0.135), 0.033, 0.023, "hide", 8)
-a.ball(0, 0.18, 0.152, 0.027, 0.029, 0.043, "hide")
-a.ball(0, 0.17, 0.19, 0.019, 0.016, 0.016, "trim", 8, 5)
-for s in (-1, 1):
-    a.ball(s * 0.035, 0.2, 0.135, 0.018, 0.006, 0.01, "black", 6, 4)
-    a.tube((s * 0.014, 0.205, 0.145), (s * 0.026, 0.228, 0.148), 0.005, 0.001, "trim", 5)
-    for z in (-0.075, 0.07):
-        a.tube((s * 0.036, 0.095, z), (s * 0.038, 0.012, z), 0.015, 0.009, "hide", 7)
-        a.tube((s * 0.038, 0, z), (s * 0.038, 0.014, z), 0.012, 0.01, "black", 7)
-a.tube((0, 0.13, -0.11), (0, 0.045, -0.13), 0.005, 0.003, "black", 5)
-
 a = asset("pasture")
 a.box(0.96, 0.02, 0.96, "grass", 0, 0.01, 0)
 for o in (-0.46, 0.46):
@@ -632,86 +619,64 @@ for sx in (-0.39, 0.39):
 a.box(0.32, 0.055, 0.012, "blue", 0, 0.76, 0.43, 0.004)
 
 
-# ---------------------------------------------------------------- vehicles (nose towards +z)
-a = asset("car")
-hull(a, 0.092, [(-0.096, 0.022), (0.088, 0.022), (0.098, 0.036), (0.094, 0.052), (0.06, 0.062), (-0.09, 0.064), (-0.098, 0.048)], "carpaint")
-hull(a, 0.086, [(-0.07, 0.062), (0.04, 0.062), (0.012, 0.097), (-0.048, 0.098)], "glass", 0.84, 0.08)
-a.box(0.071, 0.006, 0.062, "carpaint", 0, 0.1, -0.019, 0.0025)
-for s in (-1, 1):
-    a.box(0.003, 0.036, 0.007, "carpaint", s * 0.04, 0.08, -0.018)
-    for z in (-0.06, 0.06):
-        wheel(a, s * 0.043, 0.022, z, 0.022, 0.016)
-    a.box(0.018, 0.011, 0.004, "white", s * 0.028, 0.045, 0.0965)
-    a.box(0.018, 0.01, 0.004, "red", s * 0.028, 0.05, -0.0975)
-    a.box(0.013, 0.008, 0.01, "carpaint", s * 0.052, 0.068, 0.03, 0.002)
-a.box(0.05, 0.012, 0.004, "black", 0, 0.032, 0.0975)
+# ---------------------------------------------------------------- vehicles, planes, birds and cows
+material("v_steel", "#9aa3ad", 0.35, 0.65)
+vehicles.mats()
+vehicles.DETAIL["k"] = 0.5  # the city shows many at once, so they carry fewer segments
+creatures.DETAIL["k"] = 0.45
+# city material names for the workshop's materials ("v_" keeps winter snow off moving things)
+NAMES = {n: "v_" + n for n in ("tyre", "rim", "chrome", "dark", "black", "white", "redlight", "amber", "headlight", "bluelight", "yellow", "steel", "coal", "flame", "red", "blue", "green", "orange", "hullred", "timber", "sail")}
+NAMES.update({"color_paint": "carpaint", "color_dark": "carpaint", "color": "carpaint", "glass": "v_glass"})
+for n, new_name in list(NAMES.items()):
+    if new_name.startswith("v_") and new_name not in MATS:
+        MATS[new_name] = MATS[n]
+        bm = MATS[n][0].copy()
+        bm.name = new_name
+        MATS[new_name] = (bm, MATS[n][1])
 
-a = asset("loco")
-a.box(0.16, 0.02, 0.38, "darkframe", 0, 0.048, 0, 0.004)
-hull(a, 0.15, [(-0.17, 0.058), (0.17, 0.058), (0.19, 0.09), (0.165, 0.15), (-0.17, 0.15)], "carpaint")
-a.box(0.17, 0.085, 0.11, "carpaint", 0, 0.19, -0.1, 0.014)
-a.box(0.174, 0.036, 0.085, "glass", 0, 0.2, -0.1)
-a.box(0.13, 0.036, 0.004, "glass", 0, 0.2, -0.044)
-a.box(0.185, 0.014, 0.13, "darkframe", 0, 0.24, -0.1, 0.005)
-for s in (-1, 1):
-    a.box(0.004, 0.012, 0.34, "white", s * 0.077, 0.1, -0.005)
-    for z in (-0.13, -0.075, 0.075, 0.13):
-        wheel(a, s * 0.072, 0.028, z, 0.028, 0.018)
-    a.ball(s * 0.045, 0.085, 0.182, 0.012, 0.012, 0.008, "yellow", 8, 5)
-for z in (0.0, 0.07, 0.13):
-    a.tube((0, 0.15, z), (0, 0.162, z), 0.028, 0.028, "darkframe", 12)
 
-for nm, body, winmat in (("wagon", "carpaint", "glass"), ("metrocar", "white", "glass")):
-    a = asset(nm)
-    y0 = 0.03 if nm == "metrocar" else 0.058
-    if nm == "wagon":
-        a.box(0.15, 0.018, 0.36, "darkframe", 0, 0.048, 0, 0.004)
-        for s in (-1, 1):
-            for z in (-0.125, -0.07, 0.07, 0.125):
-                wheel(a, s * 0.07, 0.028, z, 0.028, 0.018)
-    else:
-        a.box(0.15, 0.02, 0.34, "darkframe", 0, 0.012, 0, 0.004)
-    a.box(0.17, 0.11, 0.36, body, 0, y0 + 0.055, 0, 0.022)
-    for s in (-1, 1):
-        for i in range(6):
-            a.box(0.004, 0.038, 0.04, "glasslit" if i % 2 else winmat, s * 0.086, y0 + 0.07, -0.138 + i * 0.055)
-        if nm == "metrocar":
-            a.box(0.004, 0.02, 0.34, "blue", s * 0.0865, y0 + 0.028, 0)
-    for z in (-0.181, 0.181):
-        a.box(0.11, 0.045, 0.004, winmat, 0, y0 + 0.07, z)
-    a.box(0.12, 0.012, 0.3, "steel", 0, y0 + 0.115, 0, 0.004)
+def workshop(build, *args):
+    """Run a shared builder (stud units) and return what it made."""
+    part = Asset()
+    saved = dict(ROUND)
+    ROUND.update(min=0.07, max=0.12)
+    build(part, *args)
+    ROUND.update(saved)
+    return part
 
-a = asset("airliner")
-stations = [(-0.4, 0.004, 0.028), (-0.33, 0.022, 0.018), (-0.22, 0.044, 0.005), (-0.1, 0.052, 0), (0.2, 0.052, 0), (0.29, 0.046, -0.001), (0.35, 0.03, -0.006), (0.385, 0.006, -0.01)]
-for (z0, r0, y0), (z1, r1, y1) in zip(stations, stations[1:]):
-    a.tube((0, y0, z0), (0, y1, z1), r0, r1, "white", 16, caps=False)
-a.box(0.05, 0.016, 0.03, "glass", 0, 0.026, 0.318, 0.006, 0)
-for s in (-1, 1):
-    for i in range(13):
-        a.box(0.004, 0.01, 0.01, "glass", s * 0.051, 0.012, -0.12 + i * 0.026)
-    a.box(0.004, 0.006, 0.34, "tail", s * 0.0515, -0.006, 0.04)
 
-    def wing(pts, y0_, y1_, t, mat):
-        top = [(s * x, y + t / 2, z) for (x, z), y in zip(pts, (y0_, y1_, y1_, y0_))]
-        bot = [(x, y - t, z) for x, y, z in top]
-        c = tuple(sum(p[i] for p in top + bot) / 8 for i in range(3))
-        a.solid([top, bot] + [[top[i], top[(i + 1) % 4], bot[(i + 1) % 4], bot[i]] for i in range(4)], mat, c)
+def place(name, part, scale, centre_x, centre_z, rename=NAMES):
+    asset(name).merge(part, scale, (-centre_x * scale, 0, -centre_z * scale), rename)
 
-    wing([(0.04, 0.08), (0.44, -0.11), (0.44, -0.16), (0.04, -0.075)], -0.016, 0.022, 0.01, "steel")
-    wing([(0.02, -0.28), (0.17, -0.37), (0.17, -0.4), (0.02, -0.36)], 0.018, 0.03, 0.007, "steel")
-    a.box(0.006, 0.05, 0.035, "tail", s * 0.443, 0.042, -0.14, 0.002)
-    a.tube((s * 0.17, -0.047, -0.04), (s * 0.17, -0.047, 0.075), 0.022, 0.029, "white", 14)
-    a.tube((s * 0.17, -0.047, 0.07), (s * 0.17, -0.047, 0.078), 0.022, 0.022, "black", 14)
-    a.box(0.008, 0.024, 0.06, "metal", s * 0.17, -0.025, -0.01)
-    a.tube((s * 0.075, -0.045, -0.04), (s * 0.075, -0.07, -0.04), 0.004, 0.004, "metal", 5)
-    wheel(a, s * 0.075, -0.072, -0.04, 0.014, 0.022)
-a.tube((0, -0.045, 0.27), (0, -0.07, 0.27), 0.004, 0.004, "metal", 5)
-wheel(a, 0, -0.074, 0.27, 0.012, 0.016)
-fin = [(-0.2, 0.04), (-0.34, 0.2), (-0.39, 0.2), (-0.37, 0.035)]
-a.solid([[(-0.006, y, z) for z, y in fin]], "tail", (0, 0.1, -0.33))
-a.solid([[(0.006, y, z) for z, y in fin]], "tail", (0, 0.1, -0.33))
-for (z0, y0), (z1, y1) in zip(fin, fin[1:] + fin[:1]):
-    a.solid([[(-0.006, y0, z0), (0.006, y0, z0), (0.006, y1, z1), (-0.006, y1, z1)]], "tail", (0, 0.1, -0.33))
+
+place("car", workshop(vehicles.car, "sedan"), 0.049, 1.0, 1.99)
+place("car_suv", workshop(vehicles.car, "suv"), 0.049, 1.0, 1.99)
+place("car_taxi", workshop(vehicles.car, "taxi"), 0.049, 1.0, 1.99)
+place("car_van", workshop(vehicles.van, "van"), 0.047, 1.0, 2.48)
+place("car_bus", workshop(vehicles.bus, "city"), 0.05, 1.0, 2.98)
+place("car_truck", workshop(vehicles.truck, "box"), 0.047, 1.0, 3.48)
+for name, part, length in (("loco", workshop(vehicles.loco, 5.96, False), 5.96), ("wagon", workshop(vehicles.coach), 5.96), ("metrocar", workshop(vehicles.coach, 5.96, True), 5.96)):
+    asset(name).merge(part, 0.064, (-0.064, -0.002 if name == "metrocar" else 0.0, -length / 2 * 0.064), {**NAMES, "color_paint": "carpaint", "color": "v_blue"})
+
+# the airliner is already in city units: nose +z, centred on the fuselage
+vehicles.DETAIL["k"] = 0.7
+vehicles.airliner(asset("airliner"), 0.8, 0.88, accent="tail", white="v_white", dark="v_black", glass="v_glass", metal="v_steel")
+
+cow_part = workshop(creatures.cow)
+asset("cow").merge(cow_part, 0.13, (-0.5 * 0.13, 0, -1.35 * 0.13), {"color": "flat_d22a2a"} )
+flat("#d22a2a")
+
+a = asset("bird_body")
+a.ball(0, 0, 0, 0.022, 0.02, 0.05, "v_dark", 12, 9)
+a.ball(0, 0.01, 0.052, 0.015, 0.015, 0.018, "v_dark", 10, 7)
+a.tube((0, 0.008, 0.065), (0, 0.004, 0.088), 0.006, 0.0005, "v_amber", 6)
+for sx in (-1, 0, 1):
+    a.face([(sx * 0.006, 0.002, -0.04), (sx * 0.02 + 0.008, 0, -0.095), (sx * 0.02 - 0.008, 0, -0.095)], "v_dark")
+a = asset("bird_wing")  # spreads towards +x from the body; the app mirrors it for the other side
+outline = [(0.008, 0.028), (0.06, 0.034), (0.12, 0.016), (0.17, -0.016), (0.15, -0.02), (0.16, -0.034), (0.125, -0.028), (0.13, -0.046), (0.09, -0.03), (0.06, -0.036), (0.008, -0.022)]
+for lift in (0.004, -0.004):
+    pts = [(x, lift * (1 - x / 0.2), z) for x, z in outline]
+    a.face(pts if lift < 0 else pts[::-1], "v_dark")
 
 # a swatch object keeps every surface texture in the exported file
 s_ = asset("surfaces")
