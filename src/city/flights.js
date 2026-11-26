@@ -25,6 +25,12 @@ export function tileHeight(c) {
     case "warehouse": return 0.26 * f + 0.1;
     case "factory": return f * 0.3 + 0.7;
     case "gasstation": return 0.35;
+    case "custom": return (c.s || 1) * 1.5;
+    case "barn": return 0.75;
+    case "silo": return 1.05;
+    case "greenhouse": return 0.4;
+    case "orchard": return 0.5;
+    case "treatment": return 0.45;
     case "tree": return 0.8 * (0.8 + 0.3 * (f - 1)) + 0.1;
     case "park": return 0.6;
     case "turbine": return 1.4;

@@ -26,6 +26,7 @@ kbd { background: #121722; border: 1px solid #323b50; border-radius: 3px; paddin
 .bar .sp { flex: 1; }
 .time, .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .time input { width: 130px; }
+.season { font: inherit; font-size: 13px; padding: 6px; background: #2a3248; color: inherit; border: 1px solid #323b50; border-radius: 6px; }
 .tag, .toast { position: absolute; left: 12px; bottom: 12px; background: rgba(28, 34, 48, .88); padding: 6px 10px; border-radius: 6px; font-size: 13px; pointer-events: none; }
 .toast { left: 50%; transform: translateX(-50%); }
 .insp label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
@@ -35,4 +36,7 @@ kbd { background: #121722; border: 1px solid #323b50; border-radius: 3px; paddin
 .sw button.on { border-color: #fff; }
 .sw input { width: 30px; height: 28px; padding: 0; border: 0; background: none; }
 .row { display: flex; gap: 6px; }
+.model { display: flex; gap: 6px; margin-top: 6px; }
+.model button:first-child { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.hint a { color: #9db2d9; }
 @media (max-width: 800px) { .city { flex-direction: column; } .side, .insp { width: auto; max-height: 38%; } .stage { min-height: 50%; } }

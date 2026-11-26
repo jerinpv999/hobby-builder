@@ -41,7 +41,19 @@ export const TYPES = {
   taxiway: { label: "Taxiway", icon: "➖" },
   atc: { label: "Control tower", icon: "🗼" },
   hangar: { label: "Hangar", icon: "🏗️", pal: PALETTE, rot: true },
+  drain: { label: "Drain", icon: "🕳️" },
+  treatment: { label: "Treatment plant", icon: "🚰" },
+  field: { label: "Wheat field", icon: "🌾" },
+  paddy: { label: "Rice paddy", icon: "🍚" },
+  vegfarm: { label: "Vegetables", icon: "🥕" },
+  orchard: { label: "Orchard", icon: "🍎" },
+  pasture: { label: "Cow pasture", icon: "🐄", rot: true },
+  barn: { label: "Barn", icon: "🛖", pal: ["#b83b2e", "#8c5a3c", "#e8dcc8", "#4f6d8f", "#5f7f4f"], rot: true },
+  silo: { label: "Silo", icon: "🛢️" },
+  greenhouse: { label: "Greenhouse", icon: "🪴", rot: true },
+  custom: { label: "My model", icon: "🧱", rot: true }, // imported from Hobby Builder
 };
+export const SEASONS = [["spring", "🌸 Spring"], ["summer", "☀️ Summer"], ["autumn", "🍂 Autumn"], ["winter", "❄️ Winter"]];
 export const GROUPS = [
   ["Land", ["road", "park", "tree", "water"]],
   ["Homes", ["house", "apartment", "hotel"]],
@@ -50,8 +62,10 @@ export const GROUPS = [
   ["Industry", ["factory", "warehouse", "turbine"]],
   ["Railway and metro", ["rail", "railstation", "metro", "metrostation"]],
   ["Airport", ["runway", "taxiway", "apron", "terminal", "atc", "hangar"]],
+  ["Farms", ["field", "paddy", "vegfarm", "orchard", "pasture", "barn", "silo", "greenhouse"]],
+  ["Drainage", ["drain", "treatment", "water"]],
 ];
-const DEFAULT_COLOR = { house: "#f2c9a0", apartment: "#e8dcc8", shop: "#b5c7d3", tower: "#8fb3d9", factory: "#d7d7d7", tree: "#4f9d4a", office: "#8fb3d9", hotel: "#f2c9a0", mall: "#e3e0e8", gasstation: "#e3e0e8", hospital: "#f4f6f8", school: "#f0c987", firestation: "#d9886b", church: "#e8dcc8", stadium: "#b5c7d3", warehouse: "#b5c7d3", railstation: "#e3e0e8", metrostation: "#8fb3d9", apron: "#e63946", terminal: "#8fb3d9", hangar: "#b5c7d3" };
+const DEFAULT_COLOR = { house: "#f2c9a0", apartment: "#e8dcc8", shop: "#b5c7d3", tower: "#8fb3d9", factory: "#d7d7d7", tree: "#4f9d4a", office: "#8fb3d9", hotel: "#f2c9a0", mall: "#e3e0e8", gasstation: "#e3e0e8", hospital: "#f4f6f8", school: "#f0c987", firestation: "#d9886b", church: "#e8dcc8", stadium: "#b5c7d3", warehouse: "#b5c7d3", railstation: "#e3e0e8", metrostation: "#8fb3d9", apron: "#e63946", terminal: "#8fb3d9", hangar: "#b5c7d3", barn: "#b83b2e" };
 
 export function defaultCell(t) {
   const d = TYPES[t];
@@ -123,6 +137,23 @@ export function baseCity() {
   put(26, 15, "atc");
   [18, 20, 22].forEach((z) => put(26, z, "hangar", { r: 1, c: "#b5c7d3" }));
   [[27, 18], [27, 20], [27, 22]].forEach(([x, z]) => put(x, z, "apron", { r: 1, c: "#2a6fdb" }));
+  // farms and drainage along the south
+  for (let z = 23; z < N; z++) for (let x = 0; x < 24; x++) grid[z][x] = rnd() < 0.08 ? { ...defaultCell("tree"), f: 1 + Math.floor(rnd() * 3), c: pick(GREENS.slice(0, 5)) } : null;
+  const area = (t, x0, x1, z0, z1) => { for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) put(x, z, t); };
+  area("field", 1, 6, 24, 27);
+  area("vegfarm", 1, 6, 28, 30);
+  area("paddy", 8, 13, 24, 29);
+  area("orchard", 15, 18, 24, 26);
+  area("pasture", 15, 19, 28, 30);
+  put(20, 25, "barn", { r: 2 });
+  put(21, 25, "silo");
+  put(22, 25, "silo");
+  put(20, 28, "greenhouse", { r: 1 });
+  put(21, 28, "greenhouse", { r: 1 });
+  area("drain", 1, 21, 23, 23);
+  area("drain", 7, 7, 24, 30);
+  area("drain", 14, 14, 24, 30);
+  put(22, 23, "treatment");
   return grid;
 }
 
@@ -145,7 +176,32 @@ function updateGlow(t) {
   });
 }
 const wx = (x) => x - N / 2 + 0.5;
-const mat = (color, o = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...o });
+let season = "summer";
+const SNOW = { value: 0 }; // 1 in winter: surfaces facing up turn white
+function mat(color, o = {}) {
+  const { snow = 1, ...rest } = o;
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0, ...rest });
+  if (snow) {
+    m.onBeforeCompile = (sh) => {
+      sh.uniforms.uSnow = SNOW;
+      sh.uniforms.uSnowK = { value: snow };
+      sh.vertexShader = sh.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying float vUp;")
+        .replace("#include <defaultnormal_vertex>", "#include <defaultnormal_vertex>\nvUp = normalize(mat3(modelMatrix) * objectNormal).y;");
+      sh.fragmentShader = sh.fragmentShader
+        .replace("#include <common>", "#include <common>\nvarying float vUp;\nuniform float uSnow;\nuniform float uSnowK;")
+        .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.9, 0.93, 0.98), uSnow * uSnowK * smoothstep(0.3, 0.7, vUp));");
+    };
+  }
+  return m;
+}
+function foliage(color) {
+  const i = Math.max(0, GREENS.indexOf(color));
+  if (season === "autumn") return ["#d9822b", "#b8452a", "#e0b034", "#8a6a2a", "#cc5f2d", "#c98a3a"][i];
+  if (season === "winter") return "#3d6152";
+  if (season === "spring") return "#" + new THREE.Color(color).lerp(new THREE.Color("#b8e07a"), 0.4).getHexString();
+  return color;
+}
 function mesh(geo, m, x = 0, y = 0, z = 0) {
   const o = new THREE.Mesh(geo, m);
   o.position.set(x, y, z);
@@ -205,8 +261,12 @@ function wall(w, h, d, rows, color, y0 = 0, o = {}) {
   return mesh(new THREE.BoxGeometry(w, h, d), [mx, mx, roof, roof, mz, mz], 0, y0 + h / 2, 0);
 }
 
-function treeMesh(s, color) {
+function treeMesh(s, base) {
   const g = new THREE.Group();
+  const color = foliage(base);
+  if (season === "spring" && (base === GREENS[2] || base === GREENS[4])) {
+    [[0.14, 0.38, 0.08], [-0.12, 0.45, -0.08], [0.02, 0.62, 0.12], [-0.05, 0.34, 0.16]].forEach(([x, y, z]) => g.add(mesh(new THREE.SphereGeometry(0.05 * s, 6, 5), mat("#f7a8c4"), x * s, y * s, z * s)));
+  }
   g.add(cyl(0.04 * s, 0.22 * s, "#7a5230", 0, 0.11 * s, 0));
   g.add(mesh(new THREE.ConeGeometry(0.22 * s, 0.36 * s, 8), mat(color), 0, 0.4 * s, 0));
   g.add(mesh(new THREE.ConeGeometry(0.16 * s, 0.3 * s, 8), mat(color), 0, 0.6 * s, 0));
@@ -215,7 +275,7 @@ function treeMesh(s, color) {
 
 function planeMesh(tail, s = 1) {
   const g = new THREE.Group();
-  const white = mat("#f4f6f8", { roughness: 0.4 });
+  const white = mat("#f4f6f8", { roughness: 0.4, snow: 0 });
   const add = (m) => { g.add(m); return m; };
   add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 10).rotateX(Math.PI / 2), white));
   add(mesh(new THREE.ConeGeometry(0.05, 0.14, 10).rotateX(Math.PI / 2), white, 0, 0, 0.32));
@@ -249,7 +309,7 @@ function buildTile(cell, nb) {
   const g = new THREE.Group();
   const { t, f = 1, c = "#ffffff" } = cell;
   if (t === "road") {
-    g.add(box(1, 0.04, 1, "#3a3d45", 0, 0.02, 0));
+    g.add(box(1, 0.04, 1, "#3a3d45", 0, 0.02, 0, { snow: 0.3 }));
     let { n, e, s, w } = nb;
     const side = "#c9c6bd";
     if (!n) g.add(box(1, 0.06, 0.1, side, 0, 0.03, -0.45));
@@ -265,7 +325,7 @@ function buildTile(cell, nb) {
     if (n && s && !e && !w) dash(0, 0, true);
     if (e && w && !n && !s) dash(0, 0, false);
   } else if (t === "water") {
-    g.add(box(1, 0.05, 1, "#4aa3df", 0, 0.025, 0, { roughness: 0.15, metalness: 0.1 }));
+    g.add(box(1, 0.05, 1, season === "winter" ? "#bfdcea" : "#4aa3df", 0, 0.025, 0, { roughness: 0.15, metalness: 0.1, snow: 0.2 }));
   } else if (t === "park") {
     g.add(box(0.98, 0.02, 0.98, "#7ccb6a", 0, 0.01, 0));
     g.add(box(0.84, 0.012, 0.12, "#eadfbf", 0, 0.022, 0));
@@ -371,7 +431,7 @@ function buildTile(cell, nb) {
     const rn = nb.rw;
     const none = !rn.n && !rn.e && !rn.s && !rn.w;
     const vert = (rn.n || rn.s) && !(rn.e || rn.w);
-    g.add(box(1, 0.03, 1, "#2e3138", 0, 0.015, 0));
+    g.add(box(1, 0.03, 1, "#2e3138", 0, 0.015, 0, { snow: 0.15 }));
     const mark = (a, off, wd, len) => g.add(box(vert ? wd : len, 0.006, vert ? len : wd, "#f4f1e6", vert ? off : a, 0.033, vert ? a : off));
     [-0.32, 0, 0.32].forEach((a) => mark(a, 0, 0.035, 0.18));
     [-0.46, 0.46].forEach((o) => mark(0, o, 0.02, 1));
@@ -391,7 +451,7 @@ function buildTile(cell, nb) {
     if (w && !rn.w) g.add(box(0.5, 0.007, 0.03, "#f2c94c", -0.25, 0.034, 0));
   } else if (t === "taxiway") {
     let { n, e, s, w } = nb;
-    g.add(box(1, 0.028, 1, "#4a4e57", 0, 0.014, 0));
+    g.add(box(1, 0.028, 1, "#4a4e57", 0, 0.014, 0, { snow: 0.25 }));
     if (!n && !e && !s && !w) { e = w = true; }
     if (n) g.add(box(0.03, 0.007, 0.5, "#f2c94c", 0, 0.032, -0.25));
     if (s) g.add(box(0.03, 0.007, 0.5, "#f2c94c", 0, 0.032, 0.25));
@@ -428,6 +488,90 @@ function buildTile(cell, nb) {
     m.scale.y = 0.62;
     g.add(m);
     g.add(box(0.6, 0.2, 0.02, "#4a5560", 0, 0.1, 0.462));
+  } else if (t === "drain") {
+    const { n, e, s, w, flow, down } = nb;
+    const water = !flow ? "#6b5a45" : season === "winter" ? "#bfdcea" : "#3f9bd6";
+    const wallC = "#a9a59a";
+    const arms = { n: n || (!n && !e && !s && !w), s: s || (!n && !e && !s && !w), e, w };
+    g.add(box(0.32, 0.03, 0.32, water, 0, 0.015, 0, { snow: 0.2 }));
+    [["n", 0, -1], ["s", 0, 1], ["e", 1, 0], ["w", -1, 0]].forEach(([k, dx, dz]) => {
+      const along = dz !== 0;
+      if (arms[k]) {
+        g.add(box(along ? 0.32 : 0.34, 0.03, along ? 0.34 : 0.32, water, dx * 0.33, 0.015, dz * 0.33, { snow: 0.2 }));
+        [-0.19, 0.19].forEach((o) => g.add(box(along ? 0.07 : 0.34, 0.07, along ? 0.34 : 0.07, wallC, along ? o : dx * 0.33, 0.035, along ? dz * 0.33 : o)));
+      } else g.add(box(along ? 0.45 : 0.07, 0.07, along ? 0.07 : 0.45, wallC, dx * 0.19, 0.035, dz * 0.19));
+    });
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([a, b]) => g.add(box(0.07, 0.072, 0.07, wallC, a * 0.19, 0.036, b * 0.19)));
+    if (flow && down && season !== "winter") {
+      const r = box(down[0] ? 0.1 : 0.18, 0.006, down[0] ? 0.18 : 0.1, "#bfe6ff", 0, 0.034, 0, { snow: 0 });
+      g.add(r);
+      g.userData.ripple = { m: r, dx: down[0], dz: down[1] };
+    }
+  } else if (t === "treatment") {
+    g.add(box(0.98, 0.04, 0.98, "#b9b6ad", 0, 0.02, 0));
+    [[-0.22, 0.2], [0.24, 0.2]].forEach(([x, z]) => { g.add(cyl(0.22, 0.14, "#8f949c", x, 0.11, z)); g.add(cyl(0.18, 0.015, season === "winter" ? "#bfdcea" : "#4f9fb0", x, 0.186, z)); });
+    g.add(box(0.5, 0.22, 0.28, "#e3e0e8", -0.1, 0.15, -0.28));
+    g.add(box(0.52, 0.04, 0.3, "#566079", -0.1, 0.28, -0.28));
+    g.add(cyl(0.05, 0.4, "#8a8f98", 0.32, 0.24, -0.28));
+  } else if (t === "field") {
+    g.add(box(0.96, 0.03, 0.96, "#8a6a43", 0, 0.015, 0));
+    const [col, h] = { spring: ["#8fd05a", 0.05], summer: ["#a8c23f", 0.12], autumn: ["#e6b93c", 0.15], winter: ["#b59a68", 0.025] }[season];
+    [-0.36, -0.18, 0, 0.18, 0.36].forEach((x) => g.add(box(0.09, h, 0.9, col, x, 0.03 + h / 2, 0)));
+  } else if (t === "paddy") {
+    g.add(box(0.96, 0.025, 0.96, season === "winter" ? "#c4dde8" : season === "autumn" ? "#8f7a45" : "#6fa79a", 0, 0.012, 0, { roughness: 0.2 }));
+    [[0, -0.47, 0.96, 0.05], [0, 0.47, 0.96, 0.05], [-0.47, 0, 0.05, 0.96], [0.47, 0, 0.05, 0.96]].forEach(([x, z, w, d]) => g.add(box(w, 0.06, d, "#7d6440", x, 0.03, z)));
+    if (season !== "winter") {
+      const col = { spring: "#a6e06a", summer: "#4fae3a", autumn: "#e0c04a" }[season];
+      const h = season === "spring" ? 0.07 : 0.14;
+      [-0.28, 0, 0.28].forEach((x) => [-0.28, 0, 0.28].forEach((z) => g.add(mesh(new THREE.ConeGeometry(0.06, h, 5), mat(col), x, 0.025 + h / 2, z))));
+    }
+  } else if (t === "vegfarm") {
+    g.add(box(0.96, 0.03, 0.96, "#7a5a38", 0, 0.015, 0));
+    const crops = { spring: ["#7cc24c", "#7cc24c", "#7cc24c"], summer: ["#d8412f", "#4f9d4a", "#8a3fa0"], autumn: ["#e8862a", "#4f9d4a", "#e8862a"], winter: [] }[season];
+    [-0.28, 0, 0.28].forEach((x, i) => {
+      g.add(box(0.14, 0.02, 0.88, "#5f4429", x, 0.035, 0));
+      if (crops.length) [-0.3, -0.1, 0.1, 0.3].forEach((z) => g.add(mesh(new THREE.SphereGeometry(season === "spring" ? 0.03 : 0.055, 7, 5), mat(crops[i]), x, 0.075, z)));
+    });
+  } else if (t === "orchard") {
+    g.add(box(0.96, 0.02, 0.96, "#7fb35a", 0, 0.01, 0));
+    [[-0.24, -0.24], [0.24, -0.24], [-0.24, 0.24], [0.24, 0.24]].forEach(([x, z]) => {
+      g.add(cyl(0.025, 0.2, "#7a5230", x, 0.1, z));
+      if (season === "winter") { [-0.6, 0.6].forEach((a) => { const b = cyl(0.012, 0.18, "#7a5230", x + a * 0.07, 0.24, z); b.rotation.z = -a; g.add(b); }); return; }
+      g.add(mesh(new THREE.SphereGeometry(0.15, 9, 7), mat(season === "spring" ? "#f4b8d0" : season === "autumn" ? "#c98a2f" : "#4f9d4a"), x, 0.31, z));
+      if (season !== "spring") [[0.13, 0.3, 0.03], [-0.05, 0.37, 0.12], [-0.1, 0.27, -0.1], [0.04, 0.45, -0.03]].forEach(([a, y, b]) => g.add(mesh(new THREE.SphereGeometry(0.032, 6, 5), mat("#d62f2f", { snow: 0 }), x + a, y, z + b)));
+    });
+  } else if (t === "pasture") {
+    g.add(box(0.96, 0.02, 0.96, season === "autumn" ? "#a9a456" : "#79b955", 0, 0.01, 0));
+    [-0.46, 0.46].forEach((o) => { g.add(box(0.92, 0.015, 0.015, "#c9a876", 0, 0.12, o)); g.add(box(0.015, 0.015, 0.92, "#c9a876", o, 0.12, 0)); [-0.46, 0, 0.46].forEach((q) => { g.add(box(0.03, 0.15, 0.03, "#8c6a43", q, 0.075, o)); g.add(box(0.03, 0.15, 0.03, "#8c6a43", o, 0.075, q)); }); });
+    [[-0.17, -0.12, 0.4], [0.2, 0.18, -2.2]].forEach(([x, z, a]) => {
+      const cow = new THREE.Group();
+      cow.add(box(0.12, 0.1, 0.22, "#f4f1ea", 0, 0.11, 0, { snow: 0.2 }));
+      cow.add(box(0.125, 0.06, 0.07, "#2b2724", 0, 0.12, -0.03, { snow: 0 }));
+      cow.add(box(0.08, 0.07, 0.07, "#f4f1ea", 0, 0.16, 0.14, { snow: 0 }));
+      [[-0.04, -0.08], [0.04, -0.08], [-0.04, 0.08], [0.04, 0.08]].forEach(([a2, b]) => cow.add(box(0.025, 0.07, 0.025, "#2b2724", a2, 0.035, b)));
+      cow.position.set(x, 0, z);
+      cow.rotation.y = a;
+      g.add(cow);
+    });
+  } else if (t === "barn") {
+    g.add(box(0.7, 0.34, 0.6, c, 0, 0.17, 0));
+    const roof = box(0.5, 0.5, 0.64, "#6b6f78", 0, 0.34, 0);
+    roof.rotation.z = Math.PI / 4;
+    roof.scale.y = 1;
+    g.add(roof);
+    g.add(box(0.24, 0.24, 0.02, "#f4eadb", 0, 0.12, 0.325));
+    g.add(box(0.02, 0.24, 0.025, c, 0, 0.12, 0.327));
+  } else if (t === "silo") {
+    g.add(cyl(0.22, 0.8, "#c8ccd2", 0, 0.4, 0));
+    g.add(mesh(new THREE.SphereGeometry(0.22, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), mat("#9aa1ab"), 0, 0.8, 0));
+    [0.2, 0.45, 0.7].forEach((y) => g.add(cyl(0.228, 0.015, "#8a8f98", 0, y, 0)));
+  } else if (t === "greenhouse") {
+    g.add(box(0.9, 0.02, 0.7, "#6f5233", 0, 0.01, 0));
+    [-0.2, 0, 0.2].forEach((z) => g.add(box(0.8, 0.07, 0.08, "#4f9d4a", 0, 0.055, z, { snow: 0 })));
+    const glass = mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.9, 16, 1, false, 0, Math.PI).rotateZ(Math.PI / 2), mat("#cdeeff", { transparent: true, opacity: 0.38, roughness: 0.1, snow: 0.7, side: THREE.DoubleSide, depthWrite: false }), 0, 0.02, 0);
+    glass.castShadow = false;
+    g.add(glass);
+    [-0.45, -0.15, 0.15, 0.45].forEach((x) => g.add(mesh(new THREE.TorusGeometry(0.34, 0.008, 5, 16, Math.PI).rotateY(Math.PI / 2), mat("#e8eef2"), x, 0.02, 0)));
   } else if (t === "office") {
     const h = f * 0.28;
     g.add(wall(0.8, h, 0.6, f, c, 0, { metalness: 0.2, roughness: 0.45 }));
@@ -512,6 +656,7 @@ function buildTile(cell, nb) {
 }
 
 function disposeGroup(g) {
+  if (g.userData.shared) return; // imported models belong to the model library
   g.traverse((o) => {
     if (o.geometry) o.geometry.dispose();
     [].concat(o.material || []).forEach((m) => { lit.delete(m); glow.delete(m); m.dispose(); });
@@ -519,11 +664,12 @@ function disposeGroup(g) {
 }
 
 /* ---------- the engine ---------- */
-export function createEngine(container, hooks) {
+export function createEngine(container, hooks, library) {
   const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]];
   let grid = baseCity();
   let name = "My city";
   let tool = "select";
+  let activeModel = null;
   let rot = 0;
   let sel = null;
   let hover = null;
@@ -562,7 +708,9 @@ export function createEngine(container, hooks) {
 
   // the board
   const soil = mat("#6b4f3a");
-  const board = new THREE.Mesh(new THREE.BoxGeometry(N, 0.4, N), [soil, soil, mat("#86c06c"), soil, soil, soil]);
+  const GROUND = { spring: "#8ccf6a", summer: "#86c06c", autumn: "#b3a45c", winter: "#c9d2da" };
+  const groundMat = mat(GROUND.summer);
+  const board = new THREE.Mesh(new THREE.BoxGeometry(N, 0.4, N), [soil, soil, groundMat, soil, soil, soil]);
   board.position.y = -0.2;
   board.receiveShadow = true;
   scene.add(board);
@@ -578,25 +726,46 @@ export function createEngine(container, hooks) {
 
   const cellAt = (x, z) => (x >= 0 && z >= 0 && x < N && z < N ? grid[z][x] : null);
   const isRoad = (x, z) => cellAt(x, z)?.t === "road";
-  const KLASS = { road: "road", rail: "rail", railstation: "rail", metro: "metro", metrostation: "metro", runway: "air", taxiway: "air", apron: "air" };
+  const KLASS = { road: "road", rail: "rail", railstation: "rail", metro: "metro", metrostation: "metro", runway: "air", taxiway: "air", apron: "air", drain: "drain", treatment: "drain", water: "drain" };
   const STATION = { railstation: 1, metrostation: 1 };
   const axisOk = (c, dx) => !STATION[c.t] || ((c.r || 0) % 2 === 0) === (dx === 0);
   function link(x, z, dx, dz, self = cellAt(x, z)) {
     const b = cellAt(x + dx, z + dz);
     if (!self || !b) return false;
     const k = KLASS[self.t];
+    if (k === "drain" && b.t === "road") return KLASS[cellAt(x + dx * 2, z + dz * 2)?.t] === "drain"; // culvert under a road
     return !!k && KLASS[b.t] === k && axisOk(self, dx) && axisOk(b, dx);
   }
   const isRw = (x, z) => cellAt(x, z)?.t === "runway";
-  const nbOf = (x, z, self) => ({ n: link(x, z, 0, -1, self), e: link(x, z, 1, 0, self), s: link(x, z, 0, 1, self), w: link(x, z, -1, 0, self), rw: { n: isRw(x, z - 1), e: isRw(x + 1, z), s: isRw(x, z + 1), w: isRw(x - 1, z) } });
+  const nbOf = (x, z, self) => ({ n: link(x, z, 0, -1, self), e: link(x, z, 1, 0, self), s: link(x, z, 0, 1, self), w: link(x, z, -1, 0, self), rw: { n: isRw(x, z - 1), e: isRw(x + 1, z), s: isRw(x, z + 1), w: isRw(x - 1, z) }, flow: flow.has(x + z * N), down: flow.get(x + z * N) });
 
+  /* which drains reach an outlet (water or a treatment plant), and which way they run */
+  let flow = new Map();
+  function computeFlow(redraw) {
+    const next = new Map();
+    const queue = [];
+    for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) if (["water", "treatment"].includes(cellAt(x, z)?.t)) queue.push([x, z]);
+    for (let i = 0; i < queue.length; i++) {
+      const [x, z] = queue[i];
+      DIRS.forEach(([dx, dz]) => {
+        const k = cellAt(x + dx, z + dz)?.t === "road" ? 2 : 1;
+        const a = x + dx * k, b = z + dz * k;
+        if (cellAt(a, b)?.t !== "drain" || next.has(a + b * N)) return;
+        next.set(a + b * N, [-dx, -dz]);
+        queue.push([a, b]);
+      });
+    }
+    const dirty = new Set([...flow.keys(), ...next.keys()].filter((k) => String(flow.get(k)) !== String(next.get(k))));
+    flow = next;
+    if (redraw) dirty.forEach((k) => refresh(k % N, Math.floor(k / N)));
+  }
   function refresh(x, z) {
     const k = x + z * N;
     const old = groups.get(k);
     if (old) { tileLayer.remove(old); disposeGroup(old); groups.delete(k); }
     const cell = grid[z][x];
     if (!cell) return;
-    const g = buildTile(cell, nbOf(x, z));
+    const g = cell.t === "custom" ? library.instance(cell) : buildTile(cell, nbOf(x, z));
     g.position.set(wx(x), 0, wx(z));
     g.userData.tile = { x, z };
     if (g.userData.parked) g.userData.parked.visible = !flights.isActive();
@@ -605,9 +774,12 @@ export function createEngine(container, hooks) {
   }
   function refreshAround(x, z) {
     refresh(x, z);
-    DIRS.forEach(([dx, dz]) => { const c = cellAt(x + dx, z + dz); if (c && KLASS[c.t]) refresh(x + dx, z + dz); });
+    DIRS.forEach(([dx, dz]) => {
+      [1, 2].forEach((k) => { const c = cellAt(x + dx * k, z + dz * k); if (c && KLASS[c.t] && (k === 1 || KLASS[c.t] === "drain")) refresh(x + dx * k, z + dz * k); });
+    });
   }
   function refreshAll() {
+    computeFlow(false);
     for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) refresh(x, z);
   }
 
@@ -624,9 +796,14 @@ export function createEngine(container, hooks) {
   let ghost = null;
   function updateGhost() {
     if (ghost) { scene.remove(ghost); disposeGroup(ghost); ghost = null; }
-    if (!hover || !TYPES[tool] || cellAt(hover.x, hover.z)?.t === tool) return;
-    const cell = { ...defaultCell(tool), r: rot };
-    ghost = buildTile(cell, nbOf(hover.x, hover.z, cell));
+    if (!hover || !TYPES[tool] || samePiece(cellAt(hover.x, hover.z))) return;
+    const cell = newCell();
+    if (tool === "custom") {
+      if (!library.has(activeModel)) return;
+      const e = library.extent(cell);
+      ghost = new THREE.Group();
+      ghost.add(box(e.w, Math.max(e.h, 0.05), e.d, "#7CFC8A", 0, Math.max(e.h, 0.05) / 2, 0, { snow: 0 }));
+    } else ghost = buildTile(cell, nbOf(hover.x, hover.z, cell));
     ghost.position.set(wx(hover.x), 0, wx(hover.z));
     ghost.traverse((o) => {
       if (!o.material) return;
@@ -635,6 +812,8 @@ export function createEngine(container, hooks) {
     });
     scene.add(ghost);
   }
+  const newCell = () => (tool === "custom" ? { t: "custom", m: activeModel, s: library.defaultSize(activeModel), r: rot } : { ...defaultCell(tool), r: rot });
+  const samePiece = (c) => !!c && c.t === tool && (tool !== "custom" || c.m === activeModel);
   function setHover(t) {
     if (hover && t && hover.x === t.x && hover.z === t.z) return;
     hover = t;
@@ -658,10 +837,11 @@ export function createEngine(container, hooks) {
     redo.length = 0;
   }
   let saveTimer = 0;
-  const save = () => ({ v: 1, name, n: N, grid: grid.map((row) => row.map((c) => c || 0)) });
+  const save = () => ({ v: 1, name, season, models: library.serialize(), n: N, grid: grid.map((row) => row.map((c) => c || 0)) });
   function changed() {
+    computeFlow(true);
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(save())); } catch { /* storage full or blocked */ } }, 300);
+    saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(save())); } catch { hooks.onError?.("Browser storage is full, so autosave stopped. Use Save file."); } }, 300);
     syncCars();
     syncTrains();
     syncPlanes();
@@ -682,6 +862,11 @@ export function createEngine(container, hooks) {
     changed();
   }
 
+  function loadModels(raw) {
+    (Array.isArray(raw?.models) ? raw.models : []).slice(0, 40).forEach((m) => {
+      try { library.add(m.name, m.text, String(m.id)); } catch { /* skip a broken model */ }
+    });
+  }
   function sanitize(raw) {
     let rows = raw && raw.grid;
     if (Array.isArray(rows) && rows.length === 24 && rows.every((r) => Array.isArray(r) && r.length === 24)) {
@@ -695,6 +880,11 @@ export function createEngine(container, hooks) {
         if (!c || !TYPES[c.t]) return null;
         const d = TYPES[c.t];
         const out = { t: c.t, r: ((c.r | 0) % 4 + 4) % 4 };
+        if (c.t === "custom") {
+          if (!library.has(c.m)) return null;
+          out.m = c.m;
+          out.s = Math.max(0.3, Math.min(8, +c.s || 1));
+        }
         if (d.f) out.f = Math.max(d.min, Math.min(d.max, c.f | 0 || d.f));
         if (d.pal) out.c = /^#[0-9a-f]{6}$/i.test(c.c) ? c.c : DEFAULT_COLOR[c.t];
         return out;
@@ -715,16 +905,22 @@ export function createEngine(container, hooks) {
       if (sel && sel.x === t.x && sel.z === t.z) select(null);
       return true;
     }
-    if (!TYPES[tool] || cur?.t === tool) return false;
-    put(t.x, t.z, { ...defaultCell(tool), r: rot });
+    if (!TYPES[tool] || samePiece(cur) || (tool === "custom" && !library.has(activeModel))) return false;
+    put(t.x, t.z, newCell());
     if (sel && sel.x === t.x && sel.z === t.z) hooks.onSelect?.(sel);
     updateGhost();
     return true;
+  }
+  function sizeSelection() {
+    const c = sel && cellAt(sel.x, sel.z);
+    const e = c?.t === "custom" ? library.extent(c) : { w: 1, d: 1 };
+    selMesh.scale.set(Math.max(1, e.w), 1, Math.max(1, e.d));
   }
   function select(t) {
     sel = t ? { x: t.x, z: t.z } : null;
     selMesh.visible = !!sel;
     if (sel) selMesh.position.set(wx(sel.x), 0.06, wx(sel.z));
+    sizeSelection();
     hooks.onSelect?.(sel);
   }
 
@@ -735,10 +931,16 @@ export function createEngine(container, hooks) {
     const r = dom.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     ray.setFromCamera(ndc, camera);
-    const hit = ray.intersectObjects([board, tileLayer], true)[0];
+    const seeThrough = tool !== "select" && tool !== "bulldoze";
+    let hit = null, o = null;
+    for (const h of ray.intersectObjects([board, tileLayer], true)) {
+      let p = h.object;
+      while (p && !p.userData.tile) p = p.parent;
+      if (seeThrough && p?.userData.shared) continue;
+      hit = h; o = p;
+      break;
+    }
     if (!hit) return null;
-    let o = hit.object;
-    while (o && !o.userData.tile) o = o.parent;
     if (o) return { ...o.userData.tile };
     const x = Math.floor(hit.point.x + N / 2), z = Math.floor(hit.point.z + N / 2);
     return x >= 0 && z >= 0 && x < N && z < N ? { x, z } : null;
@@ -798,7 +1000,7 @@ export function createEngine(container, hooks) {
   sky.add(stars);
 
   const clouds = [];
-  const cloudMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.93 });
+  const cloudMat = new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.78 });
   const cloudGeo = new THREE.SphereGeometry(1, 12, 8);
   for (let i = 0; i < 9; i++) {
     const c = new THREE.Group();
@@ -848,8 +1050,45 @@ export function createEngine(container, hooks) {
       const fl = Math.sin(clock * 9 + b.ph) * 0.7;
       b.wl.rotation.z = fl; b.wr.rotation.z = -fl;
     });
-    groups.forEach((g) => { if (g.userData.spin) g.userData.spin.rotation.z -= dt * 1.2; });
+    groups.forEach((g) => { if (g.userData.spin) g.userData.spin.rotation.z -= dt * 1.2; if (g.userData.shared) library.animate(g, clock); });
     updateGlow(clock);
+  }
+
+  const flakeCanvas = document.createElement("canvas");
+  flakeCanvas.width = flakeCanvas.height = 32;
+  const fg = flakeCanvas.getContext("2d");
+  fg.fillStyle = "#fff";
+  fg.beginPath(); fg.arc(16, 16, 13, 0, Math.PI * 2); fg.fill();
+  const FLAKES = 3500;
+  const flakePos = new Float32Array(FLAKES * 3);
+  for (let i = 0; i < FLAKES; i++) flakePos.set([(Math.random() - 0.5) * 48, Math.random() * 22, (Math.random() - 0.5) * 48], i * 3);
+  const flakeGeo = new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(flakePos, 3));
+  const snowfall = new THREE.Points(flakeGeo, new THREE.PointsMaterial({ size: 0.16, map: new THREE.CanvasTexture(flakeCanvas), transparent: true, alphaTest: 0.2, depthWrite: false }));
+  snowfall.visible = false;
+  snowfall.frustumCulled = false;
+  scene.add(snowfall);
+  function stepSeason(dt) {
+    groups.forEach((g) => {
+      const r = g.userData.ripple;
+      if (!r) return;
+      const k = ((clock * 0.9) % 1) - 0.5;
+      r.m.position.set(r.dx * k * 0.9, 0.034, r.dz * k * 0.9);
+    });
+    if (!snowfall.visible) return;
+    for (let i = 0; i < FLAKES; i++) {
+      let y = flakePos[i * 3 + 1] - dt * (0.9 + (i % 5) * 0.18);
+      if (y < 0) y += 22;
+      flakePos[i * 3 + 1] = y;
+      flakePos[i * 3] += Math.sin(clock + i) * dt * 0.25;
+    }
+    flakeGeo.attributes.position.needsUpdate = true;
+  }
+  function applySeason(name_) {
+    season = SEASONS.some(([k]) => k === name_) ? name_ : "summer";
+    SNOW.value = season === "winter" ? 1 : 0;
+    groundMat.color.set(GROUND[season]);
+    gridLines.material.opacity = season === "winter" ? 0.12 : 0.35;
+    snowfall.visible = season === "winter";
   }
 
   /* time of day */
@@ -872,6 +1111,7 @@ export function createEngine(container, hooks) {
     birdsGroup.visible = day > 0.3;
     hemi.intensity = 0.22 + 0.45 * day;
     const sky = nightCol.clone().lerp(dayCol, day).lerp(duskCol, Math.max(0, 0.5 - Math.abs(e - 0.05) * 3) * 0.7);
+    if (season === "winter") sky.lerp(new THREE.Color("#8d9bad"), 0.45 * day);
     scene.background.copy(sky);
     night = 1 - day;
     lit.forEach((m) => { m.emissiveIntensity = night; });
@@ -934,7 +1174,7 @@ export function createEngine(container, hooks) {
 
   /* trains (ground railway) and metro (raised) */
   const lerpAng = (a, b, k) => { let d = ((b - a + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI; return a + d * k; };
-  const carBox = (w, h, l, color, y) => mesh(new THREE.BoxGeometry(w, h, l), mat(color, { roughness: 0.45 }), 0, y, 0);
+  const carBox = (w, h, l, color, y) => mesh(new THREE.BoxGeometry(w, h, l), mat(color, { roughness: 0.45, snow: 0 }), 0, y, 0);
   function makeRailCars() {
     const loco = new THREE.Group();
     loco.add(carBox(0.19, 0.11, 0.36, "#c0392b", 0.1));
@@ -1053,6 +1293,7 @@ export function createEngine(container, hooks) {
     last = now;
     stepCars(dt);
     stepSky(dt);
+    stepSeason(dt);
     stepTrains(dt);
     stepPlanes(dt);
     controls.update();
@@ -1062,8 +1303,10 @@ export function createEngine(container, hooks) {
   // load: saved city, else the base city
   try {
     const raw = JSON.parse(localStorage.getItem(KEY) || "null");
-    if (raw) { grid = sanitize(raw); name = String(raw.name || name).slice(0, 40); }
+    applySeason(raw?.season);
+    if (raw) { loadModels(raw); grid = sanitize(raw); name = String(raw.name || name).slice(0, 40); }
   } catch { grid = baseCity(); }
+  setTime(hour);
   refreshAll();
   syncCars();
   syncTrains();
@@ -1071,15 +1314,19 @@ export function createEngine(container, hooks) {
   raf = requestAnimationFrame(loop);
 
   return {
-    getState: () => ({ tool, rot, sel, cell: sel ? cellAt(sel.x, sel.z) : null, canUndo: undo.length > 0, canRedo: redo.length > 0, name, hour, traffic: trafficOn }),
+    getState: () => ({ tool, rot, sel, cell: sel ? cellAt(sel.x, sel.z) : null, canUndo: undo.length > 0, canRedo: redo.length > 0, name, hour, traffic: trafficOn, season, activeModel, models: library.list(), extent: sel && cellAt(sel.x, sel.z)?.t === "custom" ? library.extent(cellAt(sel.x, sel.z)) : null }),
     stats() {
-      const s = { residents: 0, jobs: 0, roads: 0, green: 0, buildings: 0 };
+      const s = { residents: 0, jobs: 0, roads: 0, green: 0, buildings: 0, farms: 0, drains: 0, flowing: flow.size };
       grid.forEach((row) => row.forEach((c) => {
         if (!c) return;
         const f = c.f || 1;
+        const farm = ["field", "paddy", "vegfarm", "orchard", "pasture"].includes(c.t);
+        if (farm) { s.farms++; s.jobs += 3; }
+        if (c.t === "drain") s.drains++;
+        if (["barn", "greenhouse", "treatment"].includes(c.t)) s.jobs += 4;
         if (c.t === "road") s.roads++;
         else if (c.t === "park" || c.t === "tree") s.green++;
-        else if (!["water", "rail", "metro", "runway", "apron"].includes(c.t)) s.buildings++;
+        else if (!["water", "rail", "metro", "runway", "apron", "taxiway", "drain", "field", "paddy", "vegfarm", "orchard", "pasture"].includes(c.t)) s.buildings++;
         if (c.t === "house") s.residents += 3 * f;
         if (c.t === "apartment") s.residents += 7 * f;
         if (c.t === "tower") { s.residents += 4 * f; s.jobs += 12 * f; }
@@ -1104,6 +1351,34 @@ export function createEngine(container, hooks) {
       if (p.t && p.t !== c.t) { const d = defaultCell(p.t); for (const k of Object.keys(c)) delete c[k]; Object.assign(c, d, { r: p.r ?? 0 }); }
       else Object.assign(c, p);
       refreshAround(sel.x, sel.z);
+      sizeSelection();
+      changed();
+    },
+    addModel(modelName, text) {
+      const id = library.add(modelName, text);
+      this.chooseModel(id);
+      changed();
+      return id;
+    },
+    chooseModel(id) { activeModel = id; this.setTool("custom"); },
+    removeModel(id) {
+      for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) if (grid[z][x]?.m === id) put(x, z, null);
+      library.remove(id);
+      undo.length = 0; redo.length = 0; // history may refer to the removed model
+      if (activeModel === id) { activeModel = null; tool = "select"; updateGhost(); }
+      select(null);
+      changed();
+    },
+    /* bulldoze whatever sits under the selected imported model */
+    clearUnder() {
+      const c = sel && cellAt(sel.x, sel.z);
+      if (c?.t !== "custom") return;
+      const e = library.extent(c);
+      pushHistory();
+      for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+        if ((x === sel.x && z === sel.z) || !grid[z][x]) continue;
+        if (Math.abs(x - sel.x) < e.w / 2 + 0.45 && Math.abs(z - sel.z) < e.d / 2 + 0.45) put(x, z, null);
+      }
       changed();
     },
     removeSelected() { if (!sel) return; pushHistory(); const { x, z } = sel; put(x, z, null); select(null); changed(); },
@@ -1111,6 +1386,7 @@ export function createEngine(container, hooks) {
     undo: () => restore(undo, redo),
     redo: () => restore(redo, undo),
     setTime: (h) => { setTime(h); hooks.onChange?.(); },
+    setSeason(v) { applySeason(v); setTime(hour); refreshAll(); updateGhost(); changed(); },
     setTraffic: (on) => { trafficOn = on; syncCars(); hooks.onChange?.(); },
     setName: (n) => { name = n.slice(0, 40); changed(); },
     resetCamera,
@@ -1119,9 +1395,11 @@ export function createEngine(container, hooks) {
     exportJSON: () => JSON.stringify(save(), null, 1),
     importJSON(text) {
       const raw = JSON.parse(text);
+      loadModels(raw);
       const g = sanitize(raw);
       pushHistory();
       if (raw.name) name = String(raw.name).slice(0, 40);
+      if (raw.season) { applySeason(raw.season); setTime(hour); }
       loadGrid(g);
       changed();
     },
@@ -1135,6 +1413,7 @@ export function createEngine(container, hooks) {
       dom.removeEventListener("pointerleave", onLeave);
       controls.dispose();
       groups.forEach(disposeGroup);
+      library.dispose();
       renderer.dispose();
       dom.remove();
     },
