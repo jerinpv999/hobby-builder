@@ -5,9 +5,84 @@
     <link rel="icon" type="image/svg+xml" href="/hobby-builder.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hobby Builder</title>
+    <meta name="description" content="Build with 3D bricks, or grow your own city. Two builders that run in your browser." />
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; font-family: system-ui, sans-serif; color: #e8ecf3; background: linear-gradient(180deg, #0f1626 0%, #1b2742 60%, #2a3b5e 100%); display: flex; flex-direction: column; align-items: center; }
+      header { text-align: center; padding: 56px 20px 24px; }
+      h1 { margin: 0 0 10px; font-size: clamp(32px, 6vw, 52px); letter-spacing: -.02em; }
+      header p { margin: 0 auto; max-width: 520px; color: #9db2d9; font-size: 18px; line-height: 1.5; }
+      main { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; width: min(980px, 100%); padding: 24px 20px 40px; }
+      a.card { display: flex; flex-direction: column; text-decoration: none; color: inherit; background: #1c2438; border: 1px solid #2f3b58; border-radius: 18px; overflow: hidden; transition: transform .15s, border-color .15s, box-shadow .15s; }
+      a.card:hover, a.card:focus-visible { transform: translateY(-4px); border-color: #ffb703; box-shadow: 0 14px 40px rgba(0, 0, 0, .4); outline: none; }
+      .art { height: 210px; }
+      .art svg { width: 100%; height: 100%; display: block; }
+      .body { padding: 20px 22px 24px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+      h2 { margin: 0; font-size: 24px; }
+      .body p { margin: 0; color: #9db2d9; line-height: 1.5; }
+      ul { margin: 4px 0 8px; padding-left: 18px; color: #c4cfe6; line-height: 1.6; font-size: 14px; }
+      .go { margin-top: auto; align-self: flex-start; background: #ffb703; color: #1b1b1b; font-weight: 600; padding: 10px 18px; border-radius: 10px; }
+      footer { padding: 0 20px 32px; color: #6f7fa3; font-size: 13px; text-align: center; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+    <header>
+      <h1>Hobby Builder</h1>
+      <p>Two builders that run right in your browser. Pick one and start making something.</p>
+    </header>
+    <main>
+      <a class="card" href="./builder.html">
+        <div class="art" style="background: linear-gradient(#cfe8ff, #eaf5ff)">
+          <svg viewBox="0 0 400 210" aria-hidden="true">
+            <rect y="170" width="400" height="40" fill="#86c06c" />
+            <g stroke="#0003" stroke-width="1.5">
+              <rect x="80" y="130" width="70" height="40" fill="#e63946" /><rect x="150" y="130" width="70" height="40" fill="#f4a261" /><rect x="220" y="130" width="70" height="40" fill="#2a9d8f" />
+              <rect x="100" y="90" width="70" height="40" fill="#2a6fdb" /><rect x="170" y="90" width="70" height="40" fill="#e63946" />
+              <rect x="135" y="50" width="70" height="40" fill="#ffd166" />
+              <g fill="#0002"><circle cx="100" cy="124" r="5" /><circle cx="130" cy="124" r="5" /><circle cx="170" cy="124" r="5" /><circle cx="200" cy="124" r="5" /><circle cx="240" cy="124" r="5" /><circle cx="270" cy="124" r="5" /><circle cx="120" cy="84" r="5" /><circle cx="150" cy="84" r="5" /><circle cx="190" cy="84" r="5" /><circle cx="220" cy="84" r="5" /><circle cx="155" cy="44" r="5" /><circle cx="185" cy="44" r="5" /></g>
+            </g>
+            <polygon points="130,50 170,15 210,50" fill="#a5543f" stroke="#0003" stroke-width="1.5" />
+            <circle cx="330" cy="50" r="22" fill="#fff1a8" />
+          </svg>
+        </div>
+        <div class="body">
+          <h2>Hobby Builder</h2>
+          <p>Build anything with 3D bricks.</p>
+          <ul>
+            <li>About 385 pieces: houses, trees, cars, furniture</li>
+            <li>Lights, motion, walk-through mode</li>
+            <li>Save as JSON, export a GIF or video</li>
+          </ul>
+          <span class="go">Open Hobby Builder →</span>
+        </div>
+      </a>
+      <a class="card" href="./city.html">
+        <div class="art" style="background: linear-gradient(#0f1b3a, #3b5b8c 70%, #f0a56b)">
+          <svg viewBox="0 0 400 210" aria-hidden="true">
+            <circle cx="320" cy="48" r="20" fill="#e9eefc" />
+            <g fill="#fff" opacity=".9"><circle cx="60" cy="50" r="2" /><circle cx="130" cy="30" r="1.5" /><circle cx="210" cy="60" r="2" /><circle cx="260" cy="25" r="1.5" /></g>
+            <rect y="176" width="400" height="34" fill="#2c2f36" />
+            <path d="M0 193 H400" stroke="#f4f1e6" stroke-width="2" stroke-dasharray="14 12" />
+            <g>
+              <rect x="30" y="120" width="44" height="56" fill="#9fb8d6" /><rect x="80" y="90" width="40" height="86" fill="#7fa6c9" /><rect x="126" y="40" width="50" height="136" fill="#8fb3d9" /><rect x="182" y="100" width="44" height="76" fill="#b8c7d9" /><rect x="232" y="70" width="42" height="106" fill="#7fa6c9" /><rect x="280" y="130" width="50" height="46" fill="#d9886b" /><rect x="336" y="108" width="40" height="68" fill="#9fc5e8" />
+              <rect x="146" y="22" width="3" height="18" fill="#ccc" />
+            </g>
+            <g fill="#ffd27a"><rect x="136" y="55" width="8" height="8" /><rect x="156" y="55" width="8" height="8" /><rect x="136" y="80" width="8" height="8" /><rect x="156" y="105" width="8" height="8" /><rect x="136" y="130" width="8" height="8" /><rect x="90" y="110" width="8" height="8" /><rect x="104" y="135" width="8" height="8" /><rect x="242" y="90" width="8" height="8" /><rect x="256" y="120" width="8" height="8" /><rect x="192" y="120" width="8" height="8" /><rect x="40" y="140" width="8" height="8" /><rect x="346" y="130" width="8" height="8" /></g>
+            <g fill="#e63946"><rect x="60" y="182" width="16" height="7" rx="2" /></g><g fill="#2a9d8f"><rect x="240" y="196" width="16" height="7" rx="2" /></g>
+          </svg>
+        </div>
+        <div class="body">
+          <h2>City Builder</h2>
+          <p>Grow a living city from a ready-made start.</p>
+          <ul>
+            <li>Roads, towers, parks, an airport, railway and metro</li>
+            <li>Traffic, trains, planes, day and night, birds and clouds</li>
+            <li>Customize every building, save and share</li>
+          </ul>
+          <span class="go">Open City Builder →</span>
+        </div>
+      </a>
+    </main>
+    <footer>Made with React and three.js · Works best on a desktop browser</footer>
   </body>
 </html>

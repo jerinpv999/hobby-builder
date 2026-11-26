@@ -455,6 +455,29 @@ reg("key", "Name", w, d, h, canStackOn, (color) => {
 | Piece limit per file | `MAX_PIECES` in `structureIO.js` | 2000 |
 | GIF size and speed | `width` and `fps` in `recordGif()` in `animation.js` | 480 and 15 |
 
+## Pages
+
+| Page | What it is |
+|---|---|
+| `index.html` | Landing page with a choice of the two builders. |
+| `builder.html` | The brick builder (this app). |
+| `city.html` | The city builder. |
+
+## City builder
+
+Open `city.html` (or choose it on the landing page). It starts with a ready-made 32×32 city: a skyscraper downtown, apartments, shops and offices, a house district, factories, a park and a lake, a railway and a raised metro around the edge, and an airport to the east. Cars, trains, metro trains and airliners move around, and there are birds, clouds, a sun, a moon and stars.
+
+- **Build** from 30 pieces in six groups: *Land* (road, park, tree, water), *Homes* (house, apartment, hotel), *Shops and offices* (shop, mall, office, skyscraper, gas station), *Public* (hospital, school, fire station, church, stadium), *Industry* (factory, warehouse, wind turbine), *Railway and metro* (track and station each) and *Airport* (runway, taxiway, plane stand, terminal, control tower, hangar).
+- Click to place. Hold **Shift** and drag to paint roads, rails, runways, trees or water. **Bulldoze** removes tiles.
+- Rails, metro lines and runways join up with their neighbours by themselves. Stations sit in a line of track (press **R** to turn them). Trains run when there are at least 4 connected track tiles.
+- **Flights.** Airliners wait at plane stands, taxi along taxiways, take off from the runway, circle, land, taxi back to a free stand and repeat. Build a runway (3 tiles or more in a line), plane stands, and taxiways that join each stand to the runway. Planes take turns on the runway, keep apart in the air and on the ground, and go around if the runway or every stand is busy. With a runway but no stands they just touch down and take off again. Keep tall buildings away from the end of the runway.
+- **Customize** with the **Select** tool: click a piece to change its type, floors or size, color and facing, or remove it.
+- **Lights.** Runways have white edge lights with a green start and red end, taxiways have blue edge lights, and tall things carry red danger lights: skyscrapers (blinking, plus corner lights on the tallest), tall apartments and offices, wind turbines, the control tower, factory chimneys. Stadium floodlights come on at night. Everything is brighter after dark.
+- **Time of day** slider (windows light up at night), traffic on/off, and live Residents and Jobs counts.
+- **Undo / Redo** (Ctrl+Z, Ctrl+Y), autosave in the browser, **Save file / Load file** as JSON, **Base city** to restore the start and **Clear** for an empty map. Cities saved from the older 24×24 map open in the top-left corner of the new one.
+
+The code is in `src/city/` (`engine.js` is the three.js scene and rules, `CityBuilder.jsx` the interface).
+
 ## Hosting on GitHub
 
 The repository is at <https://github.com/jerinpv999/hobby-builder>. GitHub Pages hosts the app as a static site. You build it on your computer and push the result to the `gh-pages` branch.
@@ -467,7 +490,7 @@ The repository is at <https://github.com/jerinpv999/hobby-builder>. GitHub Pages
 npm run deploy
 ```
 
-This runs `deploy.sh`, which builds with `VITE_BASE=/<repo-name>/` (so asset paths work under that address), then force-pushes the build to `gh-pages`. It needs Node 20 or newer and a GitHub login that can push from your terminal. The site appears at `https://jerinpv999.github.io/hobby-builder/` about a minute later.
+This runs `deploy.sh`, which builds with `VITE_BASE=/<repo-name>/` (so asset paths work under that address), then force-pushes the build to `gh-pages`. It needs Node 20 or newer and a GitHub login that can push from your terminal. The landing page appears at `https://jerinpv999.github.io/hobby-builder/` about a minute later, with the builders at `/builder.html` and `/city.html`.
 
 Locally the base stays `/`. If you use a custom domain or a `<user>.github.io` repository, set `VITE_BASE=/` in `deploy.sh`.
 
