@@ -666,6 +666,97 @@ cow_part = workshop(creatures.cow)
 asset("cow").merge(cow_part, 0.13, (-0.5 * 0.13, 0, -1.35 * 0.13), {"color": "flat_d22a2a"} )
 flat("#d22a2a")
 
+# traffic light and warning light poles; the app adds the glowing lamps on the +z face
+a = asset("signal_pole")
+a.tube((0, 0, 0), (0, 0.022, 0), 0.026, 0.022, "concrete", 14)
+a.tube((0, 0.02, 0), (0, 0.3, 0), 0.008, 0.007, "darkframe", 10)
+for y in (0.07, 0.11, 0.15):
+    a.tube((0, y, 0), (0, y + 0.02, 0), 0.0095, 0.0095, "v_white", 10)
+a.box(0.07, 0.175, 0.008, "v_yellow", 0, 0.36, -0.02, 0.003)
+a.box(0.052, 0.155, 0.04, "v_black", 0, 0.36, 0, 0.012)
+for i in range(3):
+    y = 0.405 - i * 0.045
+    a.torus((0, y, 0.021), 0.0195, 0.003, "darkframe", "z", 20, 6)
+    a.torus((0, y, 0.032), 0.022, 0.0035, "v_black", "z", 16, 6, 0.25, math.pi - 0.5)
+
+a = asset("warn_pole")
+a.tube((0, 0, 0), (0, 0.022, 0), 0.026, 0.022, "concrete", 14)
+a.tube((0, 0.02, 0), (0, 0.37, 0), 0.008, 0.007, "metal", 10)
+a.box(0.07, 0.07, 0.035, "v_black", 0, 0.39, 0, 0.012)
+a.torus((0, 0.39, 0.019), 0.029, 0.0035, "darkframe", "z", 22, 6)
+a.torus((0, 0.39, 0.032), 0.032, 0.0045, "v_black", "z", 18, 6, 0.2, math.pi - 0.4)
+tri = [(-0.062, 0.225), (0.062, 0.225), (0.0, 0.333)]
+a.face([(x, y, 0.012) for x, y in tri], "v_red")
+a.face([(x, y, 0.006) for x, y in tri][::-1], "metal")
+a.face([(x * 0.68, 0.261 + (y - 0.261) * 0.68, 0.0135) for x, y in tri], "v_yellow")
+a.box(0.009, 0.034, 0.003, "v_black", 0, 0.268, 0.015)
+a.box(0.009, 0.009, 0.003, "v_black", 0, 0.242, 0.015)
+
+# townspeople: a body and head, plus separate arms and legs so the app can swing them
+# (built 1.7 units tall, then scaled to city size)
+for name, colour, rough in (("p_shirt", "#ffffff", 0.85), ("p_pants", "#ffffff", 0.85), ("p_skin", "#ffffff", 0.6), ("p_hair", "#ffffff", 0.75), ("p_shoe", "#25201d", 0.5), ("p_eye", "#15100e", 0.2), ("p_white", "#f6f4f0", 0.3), ("p_lip", "#9a4a40", 0.5)):
+    ensure(name, colour, rough)
+
+
+def head(a, hair_long):
+    a.tube((0, 1.37, 0), (0, 1.46, 0), 0.05, 0.048, "p_skin", 10)
+    a.ball(0, 1.565, 0.0, 0.125, 0.14, 0.125, "p_skin", 20, 14)
+    for s in (-1, 1):
+        a.ball(s * 0.042, 1.58, 0.113, 0.021, 0.015, 0.012, "p_white", 8, 6)
+        a.ball(s * 0.042, 1.58, 0.123, 0.01, 0.011, 0.006, "p_eye", 8, 5)
+        a.capsule((s * 0.022, 1.612, 0.117), (s * 0.068, 1.61, 0.108), 0.006, 0.005, "p_hair", 6)
+        a.ball(s * 0.126, 1.562, 0.0, 0.018, 0.032, 0.022, "p_skin", 8, 6)
+    a.capsule((0, 1.575, 0.12), (0, 1.538, 0.137), 0.009, 0.015, "p_skin", 8)
+    a.capsule((-0.03, 1.498, 0.113), (0.03, 1.498, 0.113), 0.007, 0.007, "p_lip", 8)
+    a.ball(0, 1.615, -0.022, 0.136, 0.115, 0.132, "p_hair", 18, 12)
+    if hair_long:
+        a.ball(0, 1.5, -0.07, 0.135, 0.19, 0.085, "p_hair", 16, 12)
+        for s in (-1, 1):
+            a.capsule((s * 0.105, 1.6, -0.01), (s * 0.12, 1.42, -0.02), 0.04, 0.032, "p_hair", 10)
+        a.ball(0.0, 1.668, 0.055, 0.1, 0.045, 0.075, "p_hair", 14, 8)
+    else:
+        a.ball(0.025, 1.675, 0.045, 0.095, 0.045, 0.08, "p_hair", 14, 8)
+
+
+def torso(a, woman):
+    part = Asset()
+    if woman:
+        lathe_rows = [(0.55, 0.235), (0.68, 0.2), (0.88, 0.13), (1.0, 0.125), (1.17, 0.165), (1.3, 0.16), (1.38, 0.09)]
+    else:
+        lathe_rows = [(0.8, 0.14), (0.9, 0.155), (1.05, 0.15), (1.2, 0.185), (1.31, 0.195), (1.39, 0.095)]
+    vehicles.lathe(part, (0, 0, 0), lathe_rows, "p_shirt", "y", 20, 3)
+    for pts, uv, mat, smooth, ns in part.faces:  # a body is flatter front to back
+        a.face([(x, y, z * 0.68) for x, y, z in pts], mat, uv, smooth, [norm((n[0], n[1], n[2] / 0.68)) for n in ns] if ns else None)
+    for s in (-1, 1):
+        a.ball(s * 0.165, 1.285, 0, 0.07, 0.065, 0.065, "p_shirt", 12, 9)
+    if not woman:
+        a.ball(0, 0.82, 0, 0.145, 0.09, 0.1, "p_pants", 16, 10)
+        a.tube((0, 0.875, 0), (0, 0.91, 0), 0.0, 0.0, "p_shoe", 6, caps=False)
+        for y in (1.02, 1.12, 1.22):
+            a.ball(0, y, 0.108 if y < 1.15 else 0.12, 0.011, 0.011, 0.007, "p_white", 8, 5)
+    for s in (-1, 1):  # collar
+        a.capsule((s * 0.012, 1.34, 0.085), (s * 0.075, 1.385, 0.05), 0.016, 0.011, "p_white", 8)
+    head(a, woman)
+
+
+vehicles.DETAIL["k"] = 0.8
+for name, woman in (("person_man", False), ("person_woman", True)):
+    part = Asset()
+    torso(part, woman)
+    asset(name).merge(part, 0.1)
+
+part = Asset()  # a leg hanging from the hip at the origin
+part.capsule((0, -0.02, 0), (0, -0.38, 0.008), 0.072, 0.052, "p_pants", 12)
+part.capsule((0, -0.38, 0.008), (0, -0.72, 0), 0.052, 0.036, "p_pants", 12)
+part.ball(0, -0.755, 0.035, 0.052, 0.042, 0.105, "p_shoe", 14, 9)
+asset("person_leg").merge(part, 0.1)
+
+part = Asset()  # an arm hanging from the shoulder at the origin
+part.capsule((0, 0, 0), (0, -0.25, 0), 0.052, 0.038, "p_shirt", 12)
+part.capsule((0, -0.25, 0), (0, -0.49, 0.015), 0.034, 0.025, "p_skin", 12)
+part.ball(0, -0.54, 0.018, 0.028, 0.05, 0.034, "p_skin", 12, 9)
+asset("person_arm").merge(part, 0.1)
+
 a = asset("bird_body")
 a.ball(0, 0, 0, 0.022, 0.02, 0.05, "v_dark", 12, 9)
 a.ball(0, 0.01, 0.052, 0.015, 0.015, 0.018, "v_dark", 10, 7)

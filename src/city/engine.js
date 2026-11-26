@@ -2,6 +2,10 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { createFlights } from "./flights.js";
+import { createTraffic, signalMode } from "./traffic.js";
+import { createPeople, canStand } from "./people.js";
+import { createWalker } from "./walk.js";
+import { greeting, reply } from "./talk.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 
 export const N = 32;
@@ -129,6 +133,7 @@ export function baseCity() {
   put(11, 21, "metrostation", { r: 1 });
   // roads out to the airport
   [8, 14].forEach((z) => { for (let x = 21; x <= 25; x++) put(x, z, "road"); });
+  [[20, 8], [20, 14]].forEach(([x, z]) => { grid[z][x].l = "warn"; });
   // airport (clear the land first)
   for (let z = 0; z < N; z++) for (let x = 24; x < N; x++) if (!(grid[z][x] && grid[z][x].t === "road")) grid[z][x] = null;
   for (let z = 2; z <= 29; z++) put(30, z, "runway");
@@ -319,6 +324,46 @@ function railArms(g, nb) {
   return { sleepers, rails };
 }
 
+/* poles, stop lines and lamps for a road with traffic lights or a warning light */
+const SIGNAL_COLOURS = [["red", "#ff2418", "#3a0b08"], ["amber", "#ffa510", "#3a2806"], ["green", "#1fe85a", "#06321a"]];
+function signalLamp(g, emissive, off, r, x, y, z) {
+  const m = new THREE.MeshStandardMaterial({ color: off, emissive, emissiveIntensity: 0, roughness: 0.25 });
+  const o = new THREE.Mesh(new THREE.SphereGeometry(r, 10, 8), m);
+  o.position.set(x, y, z);
+  g.add(o);
+  return m;
+}
+function addSignals(g, mode, nb) {
+  if (mode === "none") return;
+  let { n, e, s, w } = nb;
+  if (!n && !e && !s && !w) { e = true; w = true; }
+  const lamps = { ns: { red: [], amber: [], green: [] }, ew: { red: [], amber: [], green: [] } };
+  const blink = [];
+  // travel direction of each approach, and whether a road feeds it
+  [[0, 1, n], [0, -1, s], [1, 0, w], [-1, 0, e]].forEach(([dx, dz, fed]) => {
+    if (!fed) return;
+    const rx = -dz, rz = dx; // the driver's side of the road
+    const pole = new THREE.Group();
+    pole.position.set(-dx * 0.43 + rx * 0.43, 0, -dz * 0.43 + rz * 0.43);
+    pole.rotation.y = Math.atan2(-dx, -dz); // face the oncoming car
+    pole.scale.setScalar(1.3);
+    const name = mode === "lights" ? "signal_pole" : "warn_pole";
+    if (ASSETS?.ready) pole.add(ASSETS.model(name));
+    else {
+      pole.add(cyl(0.008, 0.36, "#333", 0, 0.18, 0));
+      pole.add(box(0.05, mode === "lights" ? 0.15 : 0.06, 0.04, "#1c1c1c", 0, 0.36, 0, { snow: 0 }));
+    }
+    if (mode === "lights") {
+      const axis = dz !== 0 ? "ns" : "ew";
+      SIGNAL_COLOURS.forEach(([key, on, off], i) => lamps[axis][key].push(signalLamp(pole, on, off, 0.018, 0, 0.405 - i * 0.045, 0.024)));
+      g.add(box(dz ? 0.34 : 0.03, 0.006, dz ? 0.03 : 0.34, "#ffffff", -dx * 0.48 + rx * 0.22, 0.045, -dz * 0.48 + rz * 0.22, { snow: 0 }));
+    } else blink.push(signalLamp(pole, "#ffa510", "#3a2806", 0.026, 0, 0.39, 0.024));
+    g.add(pole);
+  });
+  if (mode === "lights") g.userData.signal = lamps;
+  else g.userData.warn = blink;
+}
+
 function buildTile(cell, nb) {
   const g = new THREE.Group();
   const { t, f = 1, c = "#ffffff" } = cell;
@@ -340,6 +385,7 @@ function buildTile(cell, nb) {
     if (w) dash(-0.3, 0, false);
     if (n && s && !e && !w) dash(0, 0, true);
     if (e && w && !n && !s) dash(0, 0, false);
+    addSignals(g, signalMode(cell, [nb.n, nb.e, nb.s, nb.w].filter(Boolean).length), nb);
   } else if (t === "water") {
     g.add(box(1, 0.05, 1, season === "winter" ? "#bfdcea" : "#3f93c9", 0, 0.025, 0, { roughness: 0.06, metalness: 0.35, snow: 0.2, ...ripples() }));
   } else if (t === "park") {
@@ -735,6 +781,11 @@ export function createEngine(container, hooks, library, assets) {
   let hover = null;
   let hour = 14;
   let trafficOn = true;
+  let peopleOn = true;
+  let walking = false;
+  let building = false; // explore mode until the player chooses to build
+  let talkingTo = null;
+  let nearPerson = null;
   const undo = [];
   const redo = [];
   let lastKey = "", lastT = 0;
@@ -794,7 +845,6 @@ export function createEngine(container, hooks, library, assets) {
   const groups = new Map();
 
   const cellAt = (x, z) => (x >= 0 && z >= 0 && x < N && z < N ? grid[z][x] : null);
-  const isRoad = (x, z) => cellAt(x, z)?.t === "road";
   const KLASS = { road: "road", rail: "rail", railstation: "rail", metro: "metro", metrostation: "metro", runway: "air", taxiway: "air", apron: "air", drain: "drain", treatment: "drain", water: "drain" };
   const STATION = { railstation: 1, metrostation: 1 };
   const axisOk = (c, dx) => !STATION[c.t] || ((c.r || 0) % 2 === 0) === (dx === 0);
@@ -916,6 +966,7 @@ export function createEngine(container, hooks, library, assets) {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { try { localStorage.setItem(KEY, JSON.stringify(save())); } catch { hooks.onError?.("Browser storage is full, so autosave stopped. Use Save file."); } }, 300);
     syncCars();
+    syncPeople();
     syncTrains();
     syncPlanes();
     hooks.onChange?.();
@@ -953,6 +1004,7 @@ export function createEngine(container, hooks, library, assets) {
         if (!c || !TYPES[c.t]) return null;
         const d = TYPES[c.t];
         const out = { t: c.t, r: ((c.r | 0) % 4 + 4) % 4 };
+        if (c.t === "road" && ["lights", "warn", "none"].includes(c.l)) out.l = c.l;
         if (c.t === "custom") {
           if (!library.has(c.m)) return null;
           out.m = c.m;
@@ -1026,9 +1078,10 @@ export function createEngine(container, hooks, library, assets) {
     applyTool(t);
   }
   const onDown = (e) => {
+    if (walking) { down = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY }; dom.setPointerCapture?.(e.pointerId); return; }
     if (e.button !== 0) return;
     down = { x: e.clientX, y: e.clientY };
-    if (e.shiftKey && tool !== "select") {
+    if (building && e.shiftKey && tool !== "select") {
       painting = true;
       controls.enabled = false;
       pushHistory();
@@ -1037,14 +1090,28 @@ export function createEngine(container, hooks, library, assets) {
     }
   };
   const onMove = (e) => {
+    if (walking) {
+      if (down) { walker.look(e.clientX - down.lx, e.clientY - down.ly); down.lx = e.clientX; down.ly = e.clientY; }
+      return;
+    }
+    if (!building) return;
     const t = pick(e);
     setHover(t);
     if (painting && t) paintAt(t);
   };
   const onUp = (e) => {
+    if (walking) {
+      // a click (not a drag) on someone starts a conversation
+      if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) {
+        const p = pickPerson(e);
+        if (p) startTalk(p);
+      }
+      down = null;
+      return;
+    }
     controls.enabled = true;
     if (painting) { painting = false; lastPaint = ""; down = null; changed(); return; }
-    if (down && e.button === 0 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) {
+    if (building && down && e.button === 0 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 5) {
       const t = pick(e);
       if (tool === "select") select(t && cellAt(t.x, t.z) ? t : null);
       else if (t) { pushHistory(); if (applyTool(t)) changed(); }
@@ -1194,63 +1261,216 @@ export function createEngine(container, hooks, library, assets) {
   setTime(hour);
 
   /* cars */
-  const cars = [];
   const carGroup = new THREE.Group();
   scene.add(carGroup);
   const CAR_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#f1faee", "#ffd166", "#6a4c93", "#222"];
   const bodyGeo = new THREE.BoxGeometry(0.09, 0.05, 0.19), cabGeo = new THREE.BoxGeometry(0.08, 0.045, 0.09);
   const cabMat = new THREE.MeshStandardMaterial({ color: "#cfe8f5", roughness: 0.2 });
-  const roads = () => { const r = []; for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) if (isRoad(x, z)) r.push([x, z]); return r; };
-  function options(x, z) { return DIRS.map(([dx, dz]) => [x + dx, z + dz]).filter(([a, b]) => isRoad(a, b)); }
-  function spawn() {
-    const spots = roads().filter(([x, z]) => options(x, z).length);
-    if (!spots.length) return null;
-    const [x, z] = spots[Math.floor(Math.random() * spots.length)];
-    const [nx, nz] = options(x, z)[Math.floor(Math.random() * options(x, z).length)];
+  const traffic = createTraffic({ N, cellAt });
+  const carViews = new Map(); // logic car -> what is drawn for it
+  function makeCar(c) {
     const g = new THREE.Group();
-    const kinds = ["car", "car", "car", "car_suv", "car_suv", "car_taxi", "car_van", "car_bus", "car_truck"];
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    const paint = kind === "car_taxi" ? "#f2c230" : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
-    const bm = new THREE.MeshStandardMaterial({ color: paint, roughness: 0.4 });
-    if (ASSETS?.ready) g.add(ASSETS.model(kind, { carpaint: paint }));
+    const paint = c.kind === "car_taxi" ? "#f2c230" : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
+    let bm = null;
+    if (ASSETS?.ready) g.add(ASSETS.model(c.kind, { carpaint: paint }));
     else {
+      bm = new THREE.MeshStandardMaterial({ color: paint, roughness: 0.4 });
       const b = new THREE.Mesh(bodyGeo, bm); b.position.y = 0.065; b.castShadow = true;
-      const c = new THREE.Mesh(cabGeo, cabMat); c.position.set(0, 0.11, -0.01); c.castShadow = true;
-      g.add(b, c);
+      const k = new THREE.Mesh(cabGeo, cabMat); k.position.set(0, 0.11, -0.01); k.castShadow = true;
+      g.add(b, k);
     }
     carGroup.add(g);
-    return { g, bm, x, z, nx, nz, t: Math.random(), dx: nx - x, dz: nz - z, v: 0.8 + Math.random() * 0.7 };
+    return { g, bm, dx: c.nx - c.x, dz: c.nz - c.z };
+  }
+  function dropCar(c) {
+    const v = carViews.get(c);
+    carGroup.remove(v.g);
+    v.bm?.dispose();
+    carViews.delete(c);
   }
   function syncCars() {
-    const want = trafficOn ? Math.min(34, Math.floor(roads().length * 0.5)) : 0;
-    while (cars.length > want) { const c = cars.pop(); carGroup.remove(c.g); c.bm.dispose(); }
-    while (cars.length < want) { const c = spawn(); if (!c) break; cars.push(c); }
+    traffic.setCount(trafficOn ? Math.min(34, Math.floor(traffic.count() * 0.5)) : 0);
   }
   function stepCars(dt) {
-    cars.forEach((c, i) => {
-      if (!isRoad(c.x, c.z) || !isRoad(c.nx, c.nz)) {
-        const n = spawn();
-        if (n) { carGroup.remove(c.g); c.bm.dispose(); cars[i] = n; }
-        return;
-      }
-      c.t += dt * c.v;
-      if (c.t >= 1) {
-        c.t -= 1;
-        const px = c.x, pz = c.z;
-        c.x = c.nx; c.z = c.nz;
-        const opts = options(c.x, c.z);
-        const fwd = opts.filter(([a, b]) => !(a === px && b === pz));
-        const pool = fwd.length ? fwd : opts;
-        [c.nx, c.nz] = pool[Math.floor(Math.random() * pool.length)];
-      }
+    traffic.step(dt);
+    const alive = new Set(traffic.cars);
+    [...carViews.keys()].forEach((c) => { if (!alive.has(c)) dropCar(c); });
+    traffic.cars.forEach((c) => {
+      if (!carViews.has(c)) carViews.set(c, makeCar(c));
+      const v = carViews.get(c);
       const tx = c.nx - c.x, tz = c.nz - c.z;
       const k = Math.min(1, dt * 6);
-      c.dx += (tx - c.dx) * k; c.dz += (tz - c.dz) * k;
-      const len = Math.hypot(c.dx, c.dz) || 1, ux = c.dx / len, uz = c.dz / len;
-      const px = c.x + (c.nx - c.x) * c.t, pz = c.z + (c.nz - c.z) * c.t;
-      c.g.position.set(wx(px) - uz * 0.12, 0.04, wx(pz) + ux * 0.12);
-      c.g.rotation.y = Math.atan2(ux, uz);
+      v.dx += (tx - v.dx) * k; v.dz += (tz - v.dz) * k;
+      const len = Math.hypot(v.dx, v.dz) || 1, ux = v.dx / len, uz = v.dz / len;
+      v.g.position.set(wx(c.x + tx * c.t) - uz * 0.12, 0.04, wx(c.z + tz * c.t) + ux * 0.12);
+      v.g.rotation.y = Math.atan2(ux, uz);
     });
+  }
+  /* light up whichever lamps the traffic is being shown */
+  let lampTime = 0;
+  function stepSignals(dt) {
+    lampTime += dt;
+    const flash = Math.sin(lampTime * 6) > 0 ? 2.6 : 0;
+    groups.forEach((g) => {
+      const { signal, warn, tile } = g.userData;
+      if (warn) warn.forEach((m) => { m.emissiveIntensity = flash; });
+      if (!signal) return;
+      ["ns", "ew"].forEach((axis) => {
+        const now = traffic.state(tile.x, tile.z, axis);
+        Object.entries(signal[axis]).forEach(([colour, mats]) => mats.forEach((m) => { m.emissiveIntensity = colour === now ? 2.4 : 0; }));
+      });
+    });
+  }
+
+  /* townspeople */
+  const people = createPeople({ N, cellAt, traffic });
+  const peopleGroup = new THREE.Group();
+  scene.add(peopleGroup);
+  const peopleViews = new Map();
+  function makePerson(p) {
+    const g = new THREE.Group();
+    const part = (name, x, y, simple) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(x, y, 0);
+      if (ASSETS?.ready) pivot.add(ASSETS.model(name, p.colors));
+      else pivot.add(simple());
+      g.add(pivot);
+      return pivot;
+    };
+    part(p.woman ? "person_woman" : "person_man", 0, 0, () => box(0.035, 0.09, 0.025, p.colors.p_shirt, 0, 0.125, 0, { snow: 0 }));
+    const legs = [-1, 1].map((s) => part("person_leg", s * 0.0085, 0.08, () => box(0.012, 0.078, 0.014, p.colors.p_pants, 0, -0.039, 0, { snow: 0 })));
+    const arms = [-1, 1].map((s) => {
+      const arm = part("person_arm", s * 0.0225, 0.1285, () => box(0.008, 0.055, 0.008, p.colors.p_skin, 0, -0.028, 0, { snow: 0 }));
+      arm.rotation.z = s * 0.1;
+      return arm;
+    });
+    g.scale.setScalar(p.child ? 0.72 : 1);
+    g.userData.person = p.id;
+    peopleGroup.add(g);
+    return { g, legs, arms };
+  }
+  function dropPerson(p) {
+    const v = peopleViews.get(p);
+    peopleGroup.remove(v.g);
+    disposeGroup(v.g);
+    peopleViews.delete(p);
+  }
+  function syncPeople() {
+    people.setCount(peopleOn ? Math.min(45, Math.floor(people.count() * 0.28)) : 0);
+  }
+  function stepPeople(dt) {
+    people.step(dt);
+    const alive = new Set(people.list);
+    [...peopleViews.keys()].forEach((p) => { if (!alive.has(p)) dropPerson(p); });
+    people.list.forEach((p) => {
+      if (!peopleViews.has(p)) peopleViews.set(p, makePerson(p));
+      const v = peopleViews.get(p);
+      v.g.position.set(p.wx, 0.058, p.wz);
+      if (p.talking) p.yaw = Math.atan2(walker.state.x - p.wx, walker.state.z - p.wz);
+      v.g.rotation.y = p.yaw;
+      const swing = p.moving ? Math.sin(p.phase) * 0.55 : 0;
+      v.legs[0].rotation.x = swing; v.legs[1].rotation.x = -swing;
+      v.arms[0].rotation.x = -swing * 0.8; v.arms[1].rotation.x = swing * 0.8;
+      if (p.talking) v.arms[1].rotation.x = -0.5 + Math.sin(lampTime * 4) * 0.25;
+    });
+  }
+
+  /* first-person walking */
+  const walker = createWalker({ camera, canStand: (x, z) => canStand(x, z, N, cellAt, (c) => library.extent(c)) });
+  const saved = { position: new THREE.Vector3(), target: new THREE.Vector3(), fov: 45 };
+  const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 12, 16, 1, true), new THREE.MeshBasicMaterial({ color: "#ffd23f", transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+  beacon.visible = false;
+  scene.add(beacon);
+  let beaconTime = 0;
+  const viewDir = () => ({ x: -Math.sin(walker.state.yaw), z: -Math.cos(walker.state.yaw) });
+  const publicPerson = (p) => (p ? { id: p.id, name: p.name, job: p.job } : null);
+  function pickPerson(e) {
+    const r = dom.getBoundingClientRect();
+    ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hit = ray.intersectObjects([peopleGroup], true)[0];
+    let o = hit?.object;
+    while (o && !o.userData.person) o = o.parent;
+    const p = o && people.list.find((q) => q.id === o.userData.person);
+    return p && Math.hypot(p.wx - walker.state.x, p.wz - walker.state.z) < 1.2 ? p : null;
+  }
+  const worldNow = () => ({ grid, hour, season, stats: api.stats(), cityName: name, traffic: trafficOn });
+  function endTalk() {
+    if (!talkingTo) return;
+    talkingTo.talking = false;
+    talkingTo = null;
+    hooks.onTalk?.(null);
+  }
+  function startTalk(p) {
+    if (talkingTo === p) return;
+    endTalk();
+    talkingTo = p;
+    p.talking = true;
+    // turn towards them
+    const dx = p.wx - walker.state.x, dz = p.wz - walker.state.z;
+    walker.state.yaw = Math.atan2(-dx, -dz);
+    walker.state.pitch = -0.12;
+    hooks.onTalk?.({ ...publicPerson(p), hello: greeting(p, worldNow()) });
+  }
+  function stepWalk(dt) {
+    if (beacon.visible && (beaconTime -= dt) <= 0) beacon.visible = false;
+    if (!walking) return;
+    walker.update(dt);
+    const { x, z } = walker.state, d = viewDir();
+    // whoever is closest in front of us can be spoken to
+    let best = null, bestD = 0.6;
+    people.list.forEach((p) => {
+      const dx = p.wx - x, dz = p.wz - z, dist = Math.hypot(dx, dz);
+      if (dist < bestD && (dx * d.x + dz * d.z) / (dist || 1) > 0.55) { best = p; bestD = dist; }
+    });
+    if (best !== nearPerson) { nearPerson = best; hooks.onNear?.(publicPerson(best)); }
+    if (talkingTo && (Math.hypot(talkingTo.wx - x, talkingTo.wz - z) > 1.3 || !people.list.includes(talkingTo))) endTalk();
+    const heading = ["N", "NW", "W", "SW", "S", "SE", "E", "NE"][((Math.round(walker.state.yaw / (Math.PI / 4)) % 8) + 8) % 8];
+    if (heading !== lastHeading) { lastHeading = heading; hooks.onHeading?.(heading); }
+  }
+  let lastHeading = "";
+  function startWalk() {
+    // begin on the pavement of the road nearest to where the camera is looking
+    let best = null;
+    for (let z = 0; z < N; z++) for (let x = 0; x < N; x++) {
+      if (cellAt(x, z)?.t !== "road") continue;
+      const d = Math.hypot(wx(x) - controls.target.x, wx(z) - controls.target.z);
+      if (!best || d < best.d) best = { x, z, d };
+    }
+    saved.position.copy(camera.position);
+    saved.target.copy(controls.target);
+    walking = true;
+    controls.enabled = false;
+    setHover(null);
+    select(null);
+    camera.fov = 68;
+    camera.near = 0.015;
+    camera.far = 400;
+    camera.updateProjectionMatrix();
+    const spots = best ? [[wx(best.x) + 0.42, wx(best.z) + 0.42], [wx(best.x), wx(best.z)]] : [[0, 0]];
+    const [sx, sz] = spots.find(([a, b]) => canStand(a, b, N, cellAt)) || spots[0];
+    const open = [[0, 0, -1], [Math.PI / 2, -1, 0], [Math.PI, 0, 1], [-Math.PI / 2, 1, 0]].find(([, dx, dz]) => best && cellAt(best.x + dx, best.z + dz)?.t === "road");
+    lastHeading = "";
+    walker.start(sx, sz, open ? open[0] : 0);
+    hooks.onChange?.();
+  }
+  function stopWalk() {
+    if (!walking) return;
+    endTalk();
+    walking = false;
+    nearPerson = null;
+    walker.stop();
+    beacon.visible = false;
+    camera.fov = saved.fov;
+    camera.near = 0.1;
+    camera.far = 500;
+    camera.updateProjectionMatrix();
+    camera.position.copy(saved.position);
+    controls.target.copy(saved.target);
+    controls.enabled = true;
+    controls.update();
+    hooks.onNear?.(null);
+    hooks.onChange?.();
   }
 
   /* trains (ground railway) and metro (raised) */
@@ -1379,11 +1599,14 @@ export function createEngine(container, hooks, library, assets) {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     stepCars(dt);
+    stepSignals(dt);
+    stepPeople(dt);
+    stepWalk(dt);
     stepSky(dt);
     stepSeason(dt);
     stepTrains(dt);
     stepPlanes(dt);
-    controls.update();
+    if (!walking) controls.update();
     renderer.render(scene, camera);
   };
 
@@ -1396,6 +1619,7 @@ export function createEngine(container, hooks, library, assets) {
   setTime(hour);
   refreshAll();
   syncCars();
+  syncPeople();
   syncTrains();
   syncPlanes();
   raf = requestAnimationFrame(loop);
@@ -1410,7 +1634,7 @@ export function createEngine(container, hooks, library, assets) {
     if (name === "greenglass") Object.assign(m, { transparent: true, opacity: 0.42, depthWrite: false, side: THREE.DoubleSide });
     if (["leaf", "pine", "crop"].includes(name)) { m.alphaTest = 0.5; m.side = THREE.DoubleSide; }
     // moving things (names starting v_, and paint) stay clear of snow
-    const still = !name.startsWith("v_") && !["carpaint", "tail", "rubber", "glass", "glasslit", "tintglass"].includes(name);
+    const still = !name.startsWith("v_") && !name.startsWith("p_") && !["carpaint", "tail", "rubber", "glass", "glasslit", "tintglass"].includes(name);
     return addSnow(m, still ? (name === "water" ? 0.2 : 0.75) : 0);
   });
   assets?.load().then(() => {
@@ -1428,7 +1652,8 @@ export function createEngine(container, hooks, library, assets) {
       b.wl = left;
       b.wr = right;
     });
-    cars.splice(0).forEach((c) => { carGroup.remove(c.g); c.bm.dispose(); });
+    [...carViews.keys()].forEach(dropCar); // redraw with the detailed models
+    [...peopleViews.keys()].forEach(dropPerson);
     systems.forEach((sy) => { sy.sig = ""; });
     refreshAll();
     groups.forEach((g) => { if (g.userData.parked) g.userData.parked.visible = !flights.isActive(); });
@@ -1438,8 +1663,8 @@ export function createEngine(container, hooks, library, assets) {
     updateGhost();
   }).catch((err) => { console.error(err); hooks.onError?.("Could not load the detailed models, so simple shapes are shown."); });
 
-  return {
-    getState: () => ({ tool, rot, sel, cell: sel ? cellAt(sel.x, sel.z) : null, canUndo: undo.length > 0, canRedo: redo.length > 0, name, hour, traffic: trafficOn, season, activeModel, models: library.list(), extent: sel && cellAt(sel.x, sel.z)?.t === "custom" ? library.extent(cellAt(sel.x, sel.z)) : null }),
+  const api = {
+    getState: () => ({ walking, building, people: peopleOn, tool, rot, sel, cell: sel ? cellAt(sel.x, sel.z) : null, canUndo: undo.length > 0, canRedo: redo.length > 0, name, hour, traffic: trafficOn, season, activeModel, models: library.list(), extent: sel && cellAt(sel.x, sel.z)?.t === "custom" ? library.extent(cellAt(sel.x, sel.z)) : null }),
     stats() {
       const s = { residents: 0, jobs: 0, roads: 0, green: 0, buildings: 0, farms: 0, drains: 0, flowing: flow.size };
       grid.forEach((row) => row.forEach((c) => {
@@ -1464,7 +1689,19 @@ export function createEngine(container, hooks, library, assets) {
       }));
       return s;
     },
-    setTool(t) { tool = t; if (t !== "select") select(null); hoverMesh.material.color.set(t === "bulldoze" ? "#ff5a5a" : t === "select" ? "#ffffff" : "#7CFC8A"); updateGhost(); hooks.onChange?.(); },
+    setBuildMode(on) {
+      building = on;
+      if (!on) {
+        tool = "select";
+        painting = false;
+        controls.enabled = !walking;
+        select(null);
+        setHover(null);
+        updateGhost();
+      }
+      hooks.onChange?.();
+    },
+    setTool(t) { building = true; tool = t; if (t !== "select") select(null); hoverMesh.material.color.set(t === "bulldoze" ? "#ff5a5a" : t === "select" ? "#ffffff" : "#7CFC8A"); updateGhost(); hooks.onChange?.(); },
     rotate() {
       if (sel && cellAt(sel.x, sel.z) && TYPES[cellAt(sel.x, sel.z).t].rot) { this.patch({ r: ((cellAt(sel.x, sel.z).r || 0) + 1) % 4 }); return; }
       rot = (rot + 1) % 4; updateGhost(); hooks.onChange?.();
@@ -1514,7 +1751,25 @@ export function createEngine(container, hooks, library, assets) {
     setSeason(v) { applySeason(v); setTime(hour); refreshAll(); updateGhost(); changed(); },
     setTraffic: (on) => { trafficOn = on; syncCars(); hooks.onChange?.(); },
     setName: (n) => { name = n.slice(0, 40); changed(); },
-    resetCamera,
+    resetCamera: () => { if (!walking) resetCamera(); },
+    startWalk,
+    stopWalk,
+    setPeople: (on) => { peopleOn = on; if (!on) endTalk(); syncPeople(); hooks.onChange?.(); },
+    walkHold: (action, on) => walker.hold(action, on),
+    talkNearest() { if (walking && nearPerson) startTalk(nearPerson); },
+    endTalk,
+    /* answer a question from the person we're talking to; shows a beacon over any place they point to */
+    ask(text) {
+      const p = talkingTo;
+      if (!p) return null;
+      const answer = reply(p, text, worldNow(), { x: Math.floor(p.wx + N / 2), z: Math.floor(p.wz + N / 2) });
+      if (answer.target) {
+        beacon.position.set(wx(answer.target.x), 6, wx(answer.target.z));
+        beacon.visible = true;
+        beaconTime = 25;
+      }
+      return answer;
+    },
     newBase() { pushHistory(); loadGrid(baseCity()); changed(); },
     clear() { pushHistory(); loadGrid(Array.from({ length: N }, () => Array(N).fill(null))); changed(); },
     exportJSON: () => JSON.stringify(save(), null, 1),
@@ -1530,6 +1785,7 @@ export function createEngine(container, hooks, library, assets) {
     },
     dispose() {
       disposed = true;
+      walker.stop();
       cancelAnimationFrame(raf);
       clearTimeout(saveTimer);
       ro.disconnect();
@@ -1547,4 +1803,5 @@ export function createEngine(container, hooks, library, assets) {
       dom.remove();
     },
   };
+  return api;
 }
