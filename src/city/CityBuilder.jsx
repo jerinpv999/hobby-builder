@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createEngine, TYPES, GROUPS, SEASONS, PALETTE } from "./engine";
 import { createModelLibrary, MIN_SIZE, MAX_SIZE } from "./models";
 import { STORAGE_KEY as HOBBY_KEY } from "../structureIO";
+import { createAssets } from "./assets";
 import "./city.css";
 
 const fmtHour = (h) => `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.round((h % 1) * 60)).padStart(2, "0")}`;
@@ -17,7 +18,7 @@ export default function CityBuilder() {
   const bump = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
-    const e = createEngine(box.current, { onChange: bump, onSelect: bump, onHover: setHover, onError: setMsg }, createModelLibrary());
+    const e = createEngine(box.current, { onChange: bump, onSelect: bump, onHover: setHover, onError: setMsg }, createModelLibrary(), createAssets(`${import.meta.env.BASE_URL}models/city.glb`));
     eng.current = e;
     bump();
     const onKey = (ev) => {

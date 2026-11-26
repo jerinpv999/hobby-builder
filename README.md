@@ -481,6 +481,27 @@ Open `city.html` (or choose it on the landing page). It starts with a ready-made
 
 The code is in `src/city/` (`engine.js` is the three.js scene and rules, `CityBuilder.jsx` the interface).
 
+## Detailed models (Blender)
+
+Buildings, vehicles, planes, trees, crops, cows and other city objects, plus 43 Hobby Builder pieces (all trees, flowering plants, plants and stones, the car and the bus), are modelled by Blender scripts.
+
+| File | Builds |
+|---|---|
+| `blender/make_models.py` | `public/models/city.glb` (city builder) |
+| `blender/make_hobby_models.py` | `public/models/hobby.glb` (Hobby Builder pieces, and imported creations in the city) |
+| `blender/lib.py` | shared textures, materials and shape helpers |
+
+After editing a script, rebuild its file (Blender 4.4) and commit the `.glb`:
+
+```bash
+blender --background --factory-startup --python blender/make_models.py
+blender --background --factory-startup --python blender/make_hobby_models.py
+```
+
+The app loads these files when a page opens. If a file can't be loaded, the simple shapes are used instead. In the city, material names control behaviour: `tint…` takes the building's colour, `glasslit` windows glow at night, and `leaf`, `pine` and `crop` follow the season. In Hobby Builder, materials named `color…` take the piece colour. A replacement piece must keep its original footprint and height.
+
+Known differences for the replaced pieces: the placement preview and **Export OBJ** show leaves as flat squares, because both ignore the leaf cut-out texture.
+
 ## Hosting on GitHub
 
 The repository is at <https://github.com/jerinpv999/hobby-builder>. GitHub Pages hosts the app as a static site. You build it on your computer and push the result to the `gh-pages` branch.

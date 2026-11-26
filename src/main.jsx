@@ -3,9 +3,16 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 //import App from './AuthGate.jsx'
+import { loadHobbyModels } from './hobbyModels'
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+const root = document.getElementById('root')
+root.textContent = 'Loading models…'
+
+loadHobbyModels().then(() => {
+  root.textContent = ''
+  createRoot(root).render(
+    <StrictMode>
+      <App />
+    </StrictMode>,
+  )
+})
